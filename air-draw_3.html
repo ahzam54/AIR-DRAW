@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIR DRAW</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --neon-cyan: #00f5ff;
+    --neon-pink: #ff006e;
+    --neon-green: #39ff14;
+    --neon-yellow: #ffe600;
+    --dark: #020408;
+    --dark2: #080f1a;
+    --panel-bg: rgba(0,10,20,0.82);
+    --panel-border: rgba(0,245,255,0.18);
+    --font-mono: 'Share Tech Mono', monospace;
+    --font-display: 'Orbitron', sans-serif;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--dark);
+    font-family: var(--font-mono);
+    color: var(--neon-cyan);
+  }
+
+  #app {
+    position: relative;
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Video layer ── */
+  #video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0.88;
+  }
+
+  /* Pre-process canvas (hidden) */
+  #preprocessCanvas { display: none; }
+
+  /* Landmark overlay */
+  #landmarkCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* Drawing canvas */
+  #drawCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    cursor: none;
+  }
+
+  /* ── HUD panels ── */
+  .panel {
+    position: absolute;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    backdrop-filter: blur(8px);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Top-right HUD */
+  #hud {
+    top: 16px; right: 16px;
+    min-width: 160px;
+    border-color: rgba(0,245,255,0.25);
+  }
+  #hud .hud-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: rgba(0,245,255,0.45);
+    letter-spacing: 0.2em;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(0,245,255,0.12);
+    padding-bottom: 5px;
+  }
+  .hud-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 4px 0;
+    gap: 12px;
+  }
+  .hud-label { color: rgba(0,245,255,0.5); }
+  .hud-val { color: var(--neon-cyan); font-weight: bold; }
+  #fpsVal { color: var(--neon-green); }
+  #stateVal { color: var(--neon-yellow); }
+  #stateVal.drawing { color: var(--neon-pink); }
+  #brushSwatch {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: white;
+    border: 1px solid rgba(255,255,255,0.4);
+    display: inline-block;
+    margin-right: 4px;
+  }
+
+  /* Bottom-left controls */
+  #controls {
+    bottom: 16px; left: 16px;
+    border-color: rgba(0,245,255,0.15);
+    line-height: 1.8;
+  }
+  #controls .ctrl-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: rgba(0,245,255,0.4);
+    letter-spacing: 0.2em;
+    margin-bottom: 6px;
+  }
+  .ctrl-row { color: rgba(0,245,255,0.65); }
+  .ctrl-key {
+    display: inline-block;
+    background: rgba(0,245,255,0.12);
+    border: 1px solid rgba(0,245,255,0.3);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-size: 10px;
+    color: var(--neon-cyan);
+    margin-right: 4px;
+  }
+
+  /* Top-left title */
+  #title-badge {
+    position: absolute;
+    top: 16px; left: 16px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    color: transparent;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    text-shadow: none;
+    pointer-events: none;
+    user-select: none;
+  }
+  #title-badge span {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: rgba(0,245,255,0.4);
+    background: none;
+    -webkit-text-fill-color: rgba(0,245,255,0.4);
+    margin-top: -2px;
+  }
+
+  /* No-hand banner */
+  #noHandMsg {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    color: rgba(255,230,0,0.7);
+    background: rgba(0,0,0,0.5);
+    padding: 10px 22px;
+    border: 1px solid rgba(255,230,0,0.25);
+    border-radius: 3px;
+    pointer-events: none;
+    display: none;
+    text-transform: uppercase;
+  }
+
+  /* Pinch indicator */
+  #pinchIndicator {
+    position: absolute;
+    top: 70px; right: 16px;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+    padding: 6px 12px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(0,245,255,0.15);
+    transition: color 0.1s, border-color 0.1s;
+  }
+
+  /* Color palette */
+  #palette {
+    position: absolute;
+    bottom: 16px; right: 16px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .color-swatch {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.15s, border-color 0.15s;
+    box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  }
+  .color-swatch:hover { transform: scale(1.2); }
+  .color-swatch.active { border-color: rgba(255,255,255,0.9); transform: scale(1.25); }
+
+  /* ── Calibration Overlay ── */
+  #calibOverlay {
+    position: absolute; inset: 0;
+    background: rgba(2,4,8,0.94);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+  #calibOverlay.hidden { display: none; }
+
+  .calib-box {
+    border: 1px solid var(--panel-border);
+    background: rgba(0,15,30,0.9);
+    padding: 40px 52px;
+    border-radius: 6px;
+    text-align: center;
+    max-width: 480px;
+  }
+  .calib-box h1 {
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 8px;
+  }
+  .calib-box .sub {
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: rgba(0,245,255,0.45);
+    margin-bottom: 30px;
+  }
+  .calib-step {
+    font-size: 13px;
+    line-height: 2;
+    color: rgba(0,245,255,0.8);
+    margin-bottom: 24px;
+  }
+  .calib-step strong { color: var(--neon-yellow); }
+  #calibStatus {
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    color: var(--neon-green);
+    min-height: 22px;
+    margin-bottom: 16px;
+  }
+  #calibProgress {
+    width: 200px;
+    height: 4px;
+    background: rgba(0,245,255,0.1);
+    border-radius: 2px;
+    margin: 0 auto 20px;
+    overflow: hidden;
+  }
+  #calibProgressBar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    border-radius: 2px;
+    transition: width 0.3s;
+  }
+  #skipCalib {
+    background: transparent;
+    border: 1px solid rgba(0,245,255,0.3);
+    color: rgba(0,245,255,0.5);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 7px 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  #skipCalib:hover {
+    border-color: var(--neon-cyan);
+    color: var(--neon-cyan);
+    background: rgba(0,245,255,0.05);
+  }
+
+  /* Scanline effect */
+  #scanlines {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.04) 2px,
+      rgba(0,0,0,0.04) 4px
+    );
+    z-index: 5;
+  }
+
+  /* Vignette */
+  #vignette {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.65) 100%);
+    z-index: 4;
+  }
+
+  /* Loading */
+  #loading {
+    position: absolute; inset: 0;
+    background: var(--dark);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 200;
+  }
+  #loading.hidden { display: none; }
+  #loading h2 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    letter-spacing: 0.3em;
+    color: var(--neon-cyan);
+    margin-bottom: 20px;
+  }
+  .load-bar {
+    width: 220px; height: 3px;
+    background: rgba(0,245,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .load-bar-fill {
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    border-radius: 2px;
+    animation: loadPulse 1.2s ease-in-out infinite alternate;
+  }
+  @keyframes loadPulse { from { width: 20%; } to { width: 90%; } }
+
+  /* ── Debug Panel ── */
+  #debugPanel {
+    position: absolute;
+    top: 50%; left: 16px;
+    transform: translateY(-50%);
+    min-width: 210px;
+    border-color: rgba(255,230,0,0.22);
+    display: none;
+    z-index: 10;
+    line-height: 1.0;
+  }
+  #debugPanel.visible { display: block; }
+  #debugPanel .dbg-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: rgba(255,230,0,0.5);
+    letter-spacing: 0.2em;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255,230,0,0.12);
+    padding-bottom: 5px;
+  }
+  .dbg-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin: 5px 0;
+  }
+  .dbg-key { color: rgba(255,230,0,0.42); font-size: 10px; white-space: nowrap; }
+  .dbg-val { color: var(--neon-yellow); font-weight: bold; font-size: 11px; text-align: right; }
+  .dbg-sep {
+    border: none;
+    border-top: 1px solid rgba(255,230,0,0.1);
+    margin: 6px 0;
+  }
+  #dbgSkipped { color: rgba(255,100,0,0.8); }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Layers -->
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="preprocessCanvas"></canvas>
+  <canvas id="landmarkCanvas"></canvas>
+  <canvas id="drawCanvas"></canvas>
+
+  <!-- FX -->
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+
+  <!-- Title -->
+  <div id="title-badge">AIR DRAW<span>gesture canvas v1.0</span></div>
+
+  <!-- HUD -->
+  <div class="panel" id="hud">
+    <div class="hud-title">◈ System Status</div>
+    <div class="hud-row"><span class="hud-label">FPS</span><span class="hud-val" id="fpsVal">--</span></div>
+    <div class="hud-row"><span class="hud-label">State</span><span class="hud-val" id="stateVal">INIT</span></div>
+    <div class="hud-row"><span class="hud-label">Brush</span><span><span id="brushSwatch"></span><span class="hud-val" id="brushVal">3px</span></span></div>
+    <div class="hud-row"><span class="hud-label">Strokes</span><span class="hud-val" id="strokesVal">0</span></div>
+  </div>
+
+  <!-- Pinch indicator -->
+  <div id="pinchIndicator">✋ Hovering</div>
+
+  <!-- No-hand message -->
+  <div id="noHandMsg">◈ NO HAND DETECTED</div>
+
+  <!-- Controls hint -->
+  <div class="panel" id="controls">
+    <div class="ctrl-title">◈ Controls</div>
+    <div class="ctrl-row"><span class="ctrl-key">C</span> Clear canvas</div>
+    <div class="ctrl-row"><span class="ctrl-key">Z</span> Undo stroke</div>
+    <div class="ctrl-row"><span class="ctrl-key">S</span> Save PNG</div>
+    <div class="ctrl-row"><span class="ctrl-key">+</span><span class="ctrl-key">-</span> Brush size</div>
+    <div class="ctrl-row"><span class="ctrl-key">D</span> Debug panel</div>
+  </div>
+
+  <!-- Debug Panel -->
+  <div class="panel" id="debugPanel">
+    <div class="dbg-title">◈ Smoothing Debug</div>
+    <div class="dbg-row"><span class="dbg-key">Raw X / Y</span><span class="dbg-val" id="dbgRaw">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Smooth X / Y</span><span class="dbg-val" id="dbgSmooth">—</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row"><span class="dbg-key">EMA factor</span><span class="dbg-val" id="dbgEma">0.18</span></div>
+    <div class="dbg-row"><span class="dbg-key">Min dist</span><span class="dbg-val" id="dbgMinDist">4 px</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row"><span class="dbg-key">Stroke pts</span><span class="dbg-val" id="dbgPts">0</span></div>
+    <div class="dbg-row"><span class="dbg-key">Δ dist</span><span class="dbg-val" id="dbgDist">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Frame skip</span><span class="dbg-val" id="dbgSkipped">—</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row"><span class="dbg-key" style="color:rgba(255,230,0,0.35);font-size:9px">[ / ] tweak EMA ±0.01</span></div>
+    <div class="dbg-row"><span class="dbg-key" style="color:rgba(255,230,0,0.35);font-size:9px">; / ' tweak MinDist ±1</span></div>
+  </div>
+
+  <!-- Color palette -->
+  <div id="palette"></div>
+
+  <!-- Calibration overlay -->
+  <div id="calibOverlay">
+    <div class="calib-box">
+      <h1>AIR DRAW</h1>
+      <div class="sub">◈ GESTURE CALIBRATION ◈</div>
+      <div class="calib-step">
+        Pinch your <strong>thumb</strong> and <strong>index finger</strong> together<br>
+        Hold for a moment while we measure your natural pinch distance.<br>
+        This personalises detection to your hand.
+      </div>
+      <div id="calibStatus">Initialising camera…</div>
+      <div id="calibProgress"><div id="calibProgressBar"></div></div>
+      <button id="skipCalib">Skip (use defaults)</button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading">
+    <h2>LOADING MEDIAPIPE</h2>
+    <div class="load-bar"><div class="load-bar-fill"></div></div>
+  </div>
+</div>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  AIR DRAW — Main Application
+// ══════════════════════════════════════════════════════════
+
+const $ = id => document.getElementById(id);
+
+// ── DOM refs ──
+const video         = $('video');
+const preprocessC   = $('preprocessCanvas');
+const landmarkC     = $('landmarkCanvas');
+const drawC         = $('drawCanvas');
+const ppCtx         = preprocessC.getContext('2d');
+const lmCtx         = landmarkC.getContext('2d');
+const dCtx          = drawC.getContext('2d');
+
+// HUD
+const fpsVal        = $('fpsVal');
+const stateVal      = $('stateVal');
+const brushVal      = $('brushVal');
+const strokesVal    = $('strokesVal');
+const pinchInd      = $('pinchIndicator');
+const noHandMsg     = $('noHandMsg');
+
+// Calib
+const calibOverlay  = $('calibOverlay');
+const calibStatus   = $('calibStatus');
+const calibBar      = $('calibProgressBar');
+const skipBtn       = $('skipCalib');
+const loadingDiv    = $('loading');
+
+// ── Config ──
+const COLORS = ['#ffffff','#00f5ff','#ff006e','#39ff14','#ffe600','#ff6600','#aa00ff'];
+const DEFAULT_THRESHOLD   = 0.08;
+const DEBOUNCE_FRAMES     = 5;
+const LUMA_THRESHOLD      = 80;
+const CALIB_FRAMES_NEEDED = 30;
+
+// ── Smoothing config (tunable live in debug panel) ──
+let EMA_FACTOR = 0.18;   // Layer 1: lower = smoother, higher = more responsive
+let MIN_DIST   = 2;      // Layer 2: dead-zone threshold in pixels
+
+// ── State ──
+let brushColor     = '#ffffff';
+let brushSize      = 3;
+let penDown        = false;
+let penDownFrames  = 0;
+let penUpFrames    = 0;
+let pinchThreshold = parseFloat(localStorage.getItem('pinchThreshold')) || DEFAULT_THRESHOLD;
+
+let currentStroke   = [];   // [{x,y}] EMA-smoothed + gated points
+let strokes         = [];   // all completed strokes
+
+// Layer 1 EMA state for index fingertip
+let emaX = null, emaY = null;
+// Raw coords for debug
+let rawX = 0, rawY = 0;
+// Last stroke point actually recorded (for MIN_DIST gate)
+let lastStrokePoint = null;
+// Debug frame-skip counter
+let skippedFrames = 0;
+let debugVisible  = false;
+
+let handVisible    = false;
+let lastFrameTime  = performance.now();
+let fps            = 0;
+let frameCount     = 0;
+let fpsTimer       = 0;
+
+// Calibration
+let calibrating    = false;
+let calibSamples   = [];
+let calibDone      = localStorage.getItem('calibDone') === '1';
+
+// ── Resize canvases ──
+function resizeCanvases() {
+  const w = window.innerWidth, h = window.innerHeight;
+  [landmarkC, drawC, preprocessC].forEach(c => { c.width = w; c.height = h; });
+}
+resizeCanvases();
+window.addEventListener('resize', () => { resizeCanvases(); redrawAll(); });
+
+// ── Colour palette ──
+const palette = $('palette');
+COLORS.forEach(c => {
+  const sw = document.createElement('div');
+  sw.className = 'color-swatch' + (c === brushColor ? ' active' : '');
+  sw.style.background = c;
+  sw.title = c;
+  sw.onclick = () => {
+    brushColor = c;
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+    sw.classList.add('active');
+    $('brushSwatch').style.background = c;
+  };
+  palette.appendChild(sw);
+});
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', e => {
+  switch(e.key.toUpperCase()) {
+    case 'C': clearCanvas(); break;
+    case 'Z': undoStroke(); break;
+    case 'S': saveCanvas(); break;
+    case '+': case '=': brushSize = Math.min(30, brushSize + 1); updateBrushHUD(); break;
+    case '-': case '_': brushSize = Math.max(1, brushSize - 1); updateBrushHUD(); break;
+    case 'D': toggleDebug(); break;
+  }
+  // Debug-only tuning keys (only when panel visible)
+  if (debugVisible) {
+    if (e.key === '[') { EMA_FACTOR = Math.max(0.05, parseFloat((EMA_FACTOR - 0.01).toFixed(2))); updateDebugStatic(); }
+    if (e.key === ']') { EMA_FACTOR = Math.min(0.50, parseFloat((EMA_FACTOR + 0.01).toFixed(2))); updateDebugStatic(); }
+    if (e.key === ';') { MIN_DIST = Math.max(1, MIN_DIST - 1); updateDebugStatic(); }
+    if (e.key === "'") { MIN_DIST = Math.min(20, MIN_DIST + 1); updateDebugStatic(); }
+  }
+});
+
+function updateBrushHUD() { brushVal.textContent = brushSize + 'px'; }
+
+// ── Debug panel helpers ──
+const debugPanel = $('debugPanel');
+function toggleDebug() {
+  debugVisible = !debugVisible;
+  debugPanel.classList.toggle('visible', debugVisible);
+}
+function updateDebugStatic() {
+  $('dbgEma').textContent     = EMA_FACTOR.toFixed(2);
+  $('dbgMinDist').textContent = MIN_DIST + ' px';
+}
+function updateDebugLive(sx, sy, pts, dist, skipped) {
+  if (!debugVisible) return;
+  $('dbgRaw').textContent     = `${rawX.toFixed(1)}, ${rawY.toFixed(1)}`;
+  $('dbgSmooth').textContent  = `${sx.toFixed(1)}, ${sy.toFixed(1)}`;
+  $('dbgPts').textContent     = pts;
+  $('dbgDist').textContent    = dist < 0 ? '—' : dist.toFixed(1) + ' px';
+  $('dbgSkipped').textContent = skipped > 0 ? `+${skipped} skipped` : '—';
+  $('dbgSkipped').style.color = skipped > 0 ? 'rgba(255,100,0,0.8)' : 'rgba(255,230,0,0.4)';
+}
+
+function clearCanvas() {
+  dCtx.clearRect(0, 0, drawC.width, drawC.height);
+  strokes = []; currentStroke = [];
+  strokesVal.textContent = '0';
+}
+
+function undoStroke() {
+  if (strokes.length === 0) return;
+  strokes.pop();
+  redrawAll();
+  strokesVal.textContent = strokes.length;
+}
+
+function saveCanvas() {
+  // Composite video frame + drawing
+  const out = document.createElement('canvas');
+  out.width = drawC.width; out.height = drawC.height;
+  const oc = out.getContext('2d');
+  oc.drawImage(video, 0, 0, out.width, out.height);
+  // mirror
+  oc.save(); oc.scale(-1,1); oc.drawImage(video,-out.width,0,out.width,out.height); oc.restore();
+  oc.drawImage(drawC, 0, 0);
+  const a = document.createElement('a');
+  a.href = out.toDataURL('image/png');
+  a.download = 'airdraw_' + Date.now() + '.png';
+  a.click();
+}
+
+// ── Layer 3: Quadratic Bezier midpoint stroke renderer ──
+// For each pair of consecutive points, draw a quadratic curve through
+// the control point (the actual point) to the midpoint between it and the next.
+// This gives silky continuous curves with no per-segment artifacts.
+function drawBezierStroke(ctx, pts, color, size) {
+  if (pts.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = size;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = size * 1.5;
+  ctx.beginPath();
+
+  if (pts.length === 2) {
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+  } else {
+    // Start at first point
+    const firstMid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(firstMid.x, firstMid.y);
+
+    for (let i = 1; i < pts.length - 1; i++) {
+      const p1  = pts[i];
+      const p2  = pts[i + 1];
+      const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      ctx.quadraticCurveTo(p1.x, p1.y, mid.x, mid.y);
+    }
+    // End at last point
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+  }
+
+  ctx.stroke();
+  ctx.restore();
+}
+
+function redrawAll() {
+  dCtx.clearRect(0, 0, drawC.width, drawC.height);
+  for (const s of strokes) drawBezierStroke(dCtx, s.pts, s.color, s.size);
+}
+
+// ── Luminance check ──
+function getAvgLuminance(imgData) {
+  const d = imgData.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 16) { // sample every 4th pixel
+    sum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+  }
+  return sum / (d.length / 16);
+}
+
+// ── Landmark drawing ──
+function drawLandmarks(results) {
+  lmCtx.clearRect(0, 0, landmarkC.width, landmarkC.height);
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) return;
+
+  const W = landmarkC.width, H = landmarkC.height;
+  const landmarks = results.multiHandLandmarks[0];
+
+  // Connections
+  const CONNECTIONS = window.HAND_CONNECTIONS || [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],[0,17]
+  ];
+
+  lmCtx.save();
+  lmCtx.strokeStyle = 'rgba(0,245,255,0.45)';
+  lmCtx.lineWidth = 1.5;
+  for (const [a,b] of CONNECTIONS) {
+    const la = landmarks[a], lb = landmarks[b];
+    // mirror x
+    lmCtx.beginPath();
+    lmCtx.moveTo((1-la.x)*W, la.y*H);
+    lmCtx.lineTo((1-lb.x)*W, lb.y*H);
+    lmCtx.stroke();
+  }
+
+  // Dots
+  for (let i = 0; i < landmarks.length; i++) {
+    const lm = landmarks[i];
+    const x = (1-lm.x)*W, y = lm.y*H;
+    const isKey = [4,8].includes(i);
+    lmCtx.beginPath();
+    lmCtx.arc(x, y, isKey ? 5 : 2.5, 0, Math.PI*2);
+    lmCtx.fillStyle = isKey ? (penDown ? 'rgba(255,0,110,0.9)' : 'rgba(0,245,255,0.9)') : 'rgba(0,245,255,0.55)';
+    lmCtx.shadowColor = isKey ? (penDown ? '#ff006e' : '#00f5ff') : 'transparent';
+    lmCtx.shadowBlur = isKey ? 8 : 0;
+    lmCtx.fill();
+  }
+  lmCtx.restore();
+}
+
+// ── Hand processing ──
+function processHand(results) {
+  // FPS
+  const now = performance.now();
+  const dt = now - lastFrameTime;
+  lastFrameTime = now;
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 500) {
+    fps = Math.round(frameCount / (fpsTimer / 1000));
+    fpsVal.textContent = fps;
+    fpsVal.style.color = fps >= 25 ? '#39ff14' : fps >= 15 ? '#ffe600' : '#ff006e';
+    frameCount = 0; fpsTimer = 0;
+  }
+
+  drawLandmarks(results);
+
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    handVisible = false;
+    noHandMsg.style.display = 'block';
+    stateVal.textContent = 'NO HAND';
+    stateVal.style.color = '#ffe600';
+    pinchInd.textContent = '◈ No hand';
+    pinchInd.style.color = 'rgba(255,230,0,0.6)';
+
+    // Close stroke if mid-draw
+    if (currentStroke.length > 1) {
+      strokes.push({ pts: [...currentStroke], color: brushColor, size: brushSize });
+      strokesVal.textContent = strokes.length;
+      redrawAll();
+    }
+    currentStroke = [];
+    lastStrokePoint = null;
+    emaX = null; emaY = null;  // reset EMA so next hand appearance starts fresh
+    penDown = false;
+    return;
+  }
+
+  handVisible = true;
+  noHandMsg.style.display = 'none';
+
+  const W = drawC.width, H = drawC.height;
+  const lm = results.multiHandLandmarks[0];
+
+  // Raw landmark coords (mirrored)
+  rawX = (1 - lm[8].x) * W;
+  rawY = lm[8].y * H;
+  const rawThumbX = (1 - lm[4].x) * W;
+  const rawThumbY = lm[4].y * H;
+  const wristX    = (1 - lm[0].x) * W;
+  const wristY    = lm[0].y * H;
+  const middleX   = (1 - lm[12].x) * W;
+  const middleY   = lm[12].y * H;
+
+  // ── LAYER 1: EMA smoothing on index fingertip ──
+  if (emaX === null) { emaX = rawX; emaY = rawY; }
+  emaX = EMA_FACTOR * rawX + (1 - EMA_FACTOR) * emaX;
+  emaY = EMA_FACTOR * rawY + (1 - EMA_FACTOR) * emaY;
+  const smoothIndex = { x: emaX, y: emaY };
+
+  // Same EMA for thumb (for pinch calc only — use raw for better responsiveness there)
+  const thumb  = { x: rawThumbX, y: rawThumbY };
+  const wrist  = { x: wristX, y: wristY };
+  const middle = { x: middleX, y: middleY };
+
+  // Normalised pinch distance (use raw landmarks for accuracy)
+  const handSize  = Math.hypot(middle.x - wrist.x, middle.y - wrist.y);
+  const pinchDist = Math.hypot(thumb.x - smoothIndex.x, thumb.y - smoothIndex.y);
+  const normPinch = handSize > 0 ? pinchDist / handSize : 1;
+
+  // Calibration sampling
+  if (calibrating) {
+    if (normPinch < 0.15) {
+      calibSamples.push(normPinch);
+      const progress = Math.min(100, (calibSamples.length / CALIB_FRAMES_NEEDED) * 100);
+      calibBar.style.width = progress + '%';
+      calibStatus.textContent = `Sampling pinch… ${calibSamples.length}/${CALIB_FRAMES_NEEDED}`;
+      if (calibSamples.length >= CALIB_FRAMES_NEEDED) {
+        const avg = calibSamples.reduce((a,b)=>a+b,0) / calibSamples.length;
+        pinchThreshold = Math.min(0.18, avg * 1.3);
+        localStorage.setItem('pinchThreshold', pinchThreshold.toFixed(4));
+        localStorage.setItem('calibDone', '1');
+        finishCalib();
+      }
+    } else {
+      calibStatus.textContent = 'Pinch thumb + index together…';
+    }
+    return;
+  }
+
+  // Debounced pen state
+  if (normPinch < pinchThreshold) {
+    penDownFrames = Math.min(DEBOUNCE_FRAMES, penDownFrames + 1);
+    penUpFrames = 0;
+  } else {
+    penUpFrames = Math.min(DEBOUNCE_FRAMES, penUpFrames + 1);
+    penDownFrames = 0;
+  }
+
+  const wasPenDown = penDown;
+  if (penDownFrames >= DEBOUNCE_FRAMES) penDown = true;
+  if (penUpFrames   >= DEBOUNCE_FRAMES) penDown = false;
+
+  // ── Stroke lifecycle with Layer 2 dead-zone ──
+  let distFromLast = -1;
+  let thisFrameSkipped = false;
+
+  if (penDown) {
+    const newPt = smoothIndex;
+
+    // ── LAYER 2: minimum movement threshold ──
+    if (lastStrokePoint !== null) {
+      distFromLast = Math.hypot(newPt.x - lastStrokePoint.x, newPt.y - lastStrokePoint.y);
+      if (distFromLast < MIN_DIST) {
+        thisFrameSkipped = true;
+        skippedFrames++;
+      }
+    }
+
+    if (!thisFrameSkipped) {
+      currentStroke.push({ x: newPt.x, y: newPt.y });
+      lastStrokePoint = { x: newPt.x, y: newPt.y };
+      skippedFrames = 0;
+
+      // ── LAYER 3: Redraw with Bezier curves (only when ≥ 3 pts buffered) ──
+      if (currentStroke.length >= 3) {
+        redrawAll();
+        drawBezierStroke(dCtx, currentStroke, brushColor, brushSize);
+      }
+    }
+
+    pinchInd.textContent = '✏️ Drawing';
+    pinchInd.style.color = '#ff006e';
+    stateVal.textContent = 'DRAWING';
+    stateVal.style.color = '#ff006e';
+  } else {
+    if (wasPenDown && currentStroke.length > 1) {
+      strokes.push({ pts: [...currentStroke], color: brushColor, size: brushSize });
+      strokesVal.textContent = strokes.length;
+      redrawAll();
+    }
+    currentStroke = [];
+    lastStrokePoint = null;
+    skippedFrames = 0;
+
+    pinchInd.textContent = '✋ Hovering';
+    pinchInd.style.color = 'rgba(0,245,255,0.7)';
+    stateVal.textContent = 'HOVER';
+    stateVal.style.color = '#00f5ff';
+  }
+
+  updateDebugLive(emaX, emaY, currentStroke.length, distFromLast, skippedFrames);
+}
+
+// ── Calibration flow ──
+function startCalib() {
+  calibrating = true;
+  calibSamples = [];
+  calibBar.style.width = '0%';
+  calibStatus.textContent = 'Show your hand to the camera…';
+  calibOverlay.classList.remove('hidden');
+}
+
+function finishCalib() {
+  calibrating = false;
+  calibOverlay.classList.add('hidden');
+}
+
+skipBtn.onclick = () => {
+  calibrating = false;
+  localStorage.setItem('calibDone', '1');
+  finishCalib();
+};
+
+// ── MediaPipe setup ──
+async function init() {
+  // Camera
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+  } catch(e) {
+    loadingDiv.querySelector('h2').textContent = 'CAMERA ERROR';
+    console.error(e);
+    return;
+  }
+
+  // MediaPipe Hands
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.55
+  });
+
+  hands.onResults(results => {
+    processHand(results);
+  });
+
+  // Camera loop with preprocessing
+  const camera = new Camera(video, {
+    onFrame: async () => {
+      const w = video.videoWidth  || 640;
+      const h = video.videoHeight || 480;
+      preprocessC.width = w;
+      preprocessC.height = h;
+
+      // Luminance check
+      ppCtx.filter = 'none';
+      ppCtx.drawImage(video, 0, 0, w, h);
+      const imgData = ppCtx.getImageData(0, 0, w, h);
+      const luma = getAvgLuminance(imgData);
+
+      if (luma < LUMA_THRESHOLD) {
+        ppCtx.filter = 'brightness(1.3) contrast(1.2)';
+        ppCtx.drawImage(video, 0, 0, w, h);
+      }
+
+      await hands.send({ image: preprocessC });
+    },
+    width: 1280,
+    height: 720
+  });
+
+  await camera.start();
+
+  // Hide loading
+  loadingDiv.classList.add('hidden');
+
+  // Calibration
+  if (!calibDone) {
+    startCalib();
+  } else {
+    calibOverlay.classList.add('hidden');
+  }
+}
+
+init();
+</script>
+</body>
+</html>

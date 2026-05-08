@@ -1,0 +1,2276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIR DRAW</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --neon-cyan:   #00f5ff;
+    --neon-pink:   #ff006e;
+    --neon-green:  #39ff14;
+    --neon-yellow: #ffe600;
+    --dark:        #020408;
+    --dark2:       #080f1a;
+    --panel-bg:    rgba(0,10,20,0.82);
+    --panel-border:rgba(0,245,255,0.18);
+    --font-mono:   'Share Tech Mono', monospace;
+    --font-display:'Orbitron', sans-serif;
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--dark);
+    font-family: var(--font-mono);
+    color: var(--neon-cyan);
+  }
+
+  #app {
+    position: relative;
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Video layer ── */
+  #video {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    opacity: 0.88;
+  }
+
+  #preprocessCanvas { display: none; }
+
+  #landmarkCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  #drawCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    cursor: none;
+  }
+
+  /* ── Menu canvas — sits above draw, below HUD panels ── */
+  #menuCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 6;
+  }
+
+  /* ── Particle canvas — above draw, below menu ── */
+  #particleCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 7;
+  }
+
+  /* ── HUD panels — must stay above menu canvas ── */
+  .panel {
+    position: absolute;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    backdrop-filter: blur(8px);
+    border-radius: 4px;
+    padding: 10px 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    z-index: 10;
+  }
+
+  #hud {
+    top: 16px; right: 16px;
+    min-width: 180px;
+    border-color: rgba(0,245,255,0.25);
+  }
+  #hud .hud-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: rgba(0,245,255,0.45);
+    letter-spacing: 0.2em;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(0,245,255,0.12);
+    padding-bottom: 5px;
+  }
+  .hud-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 4px 0;
+    gap: 12px;
+  }
+  .hud-label  { color: rgba(0,245,255,0.5); }
+  .hud-val    { color: var(--neon-cyan); font-weight: bold; }
+  #fpsVal     { color: var(--neon-green); }
+  #gestureVal { color: var(--neon-yellow); letter-spacing: 0.05em; }
+  #stateVal   { color: var(--neon-cyan); }
+  #stateVal.drawing { color: var(--neon-pink); }
+  #stateVal.erasing { color: var(--neon-yellow); }
+  #stateVal.menu    { color: var(--neon-cyan); }
+  #modeVal    { color: var(--neon-cyan); }
+  #modeVal.shape { color: #66aaff; }
+  #brushSwatch {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: white;
+    border: 1px solid rgba(255,255,255,0.4);
+    display: inline-block;
+    margin-right: 4px;
+  }
+
+  #controls {
+    bottom: 16px; left: 16px;
+    border-color: rgba(0,245,255,0.15);
+    line-height: 1.8;
+    z-index: 10;
+  }
+  #controls .ctrl-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: rgba(0,245,255,0.4);
+    letter-spacing: 0.2em;
+    margin-bottom: 6px;
+  }
+  .ctrl-row  { color: rgba(0,245,255,0.65); }
+  .ctrl-key  {
+    display: inline-block;
+    background: rgba(0,245,255,0.12);
+    border: 1px solid rgba(0,245,255,0.3);
+    border-radius: 3px;
+    padding: 0 5px;
+    font-size: 10px;
+    color: var(--neon-cyan);
+    margin-right: 4px;
+  }
+  .ctrl-gest {
+    display: inline-block;
+    font-size: 13px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  #title-badge {
+    position: absolute;
+    top: 16px; left: 16px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    color: transparent;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    text-shadow: none;
+    pointer-events: none;
+    user-select: none;
+    z-index: 10;
+  }
+  #title-badge span {
+    display: block;
+    font-size: 9px;
+    letter-spacing: 0.3em;
+    color: rgba(0,245,255,0.4);
+    background: none;
+    -webkit-text-fill-color: rgba(0,245,255,0.4);
+    margin-top: -2px;
+  }
+
+  #noHandMsg {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-display);
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    color: rgba(255,230,0,0.7);
+    background: rgba(0,0,0,0.5);
+    padding: 10px 22px;
+    border: 1px solid rgba(255,230,0,0.25);
+    border-radius: 3px;
+    pointer-events: none;
+    display: none;
+    text-transform: uppercase;
+    z-index: 10;
+  }
+
+  #pinchIndicator {
+    position: absolute;
+    top: 70px; right: 16px;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+    padding: 6px 12px;
+    border-radius: 3px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(0,245,255,0.15);
+    transition: color 0.1s, border-color 0.1s;
+    z-index: 10;
+  }
+
+  #palette {
+    position: absolute;
+    bottom: 16px; right: 16px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    z-index: 10;
+  }
+  .color-swatch {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.15s, border-color 0.15s;
+    box-shadow: 0 0 6px rgba(0,0,0,0.5);
+  }
+  .color-swatch:hover  { transform: scale(1.2); }
+  .color-swatch.active { border-color: rgba(255,255,255,0.9); transform: scale(1.25); }
+
+  /* ── Calibration Overlay ── */
+  #calibOverlay {
+    position: absolute; inset: 0;
+    background: rgba(2,4,8,0.94);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+  #calibOverlay.hidden { display: none; }
+
+  .calib-box {
+    border: 1px solid var(--panel-border);
+    background: rgba(0,15,30,0.9);
+    padding: 40px 52px;
+    border-radius: 6px;
+    text-align: center;
+    max-width: 480px;
+  }
+  .calib-box h1 {
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 8px;
+  }
+  .calib-box .sub {
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: rgba(0,245,255,0.45);
+    margin-bottom: 30px;
+  }
+  .calib-step {
+    font-size: 13px;
+    line-height: 2;
+    color: rgba(0,245,255,0.8);
+    margin-bottom: 24px;
+  }
+  .calib-step strong { color: var(--neon-yellow); }
+  #calibStatus {
+    font-family: var(--font-display);
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    color: var(--neon-green);
+    min-height: 22px;
+    margin-bottom: 16px;
+  }
+  #calibProgress {
+    width: 200px; height: 4px;
+    background: rgba(0,245,255,0.1);
+    border-radius: 2px;
+    margin: 0 auto 20px;
+    overflow: hidden;
+  }
+  #calibProgressBar {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    border-radius: 2px;
+    transition: width 0.3s;
+  }
+  #skipCalib {
+    background: transparent;
+    border: 1px solid rgba(0,245,255,0.3);
+    color: rgba(0,245,255,0.5);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 7px 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  #skipCalib:hover {
+    border-color: var(--neon-cyan);
+    color: var(--neon-cyan);
+    background: rgba(0,245,255,0.05);
+  }
+
+  #scanlines {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent, transparent 2px,
+      rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px
+    );
+    z-index: 5;
+  }
+
+  #vignette {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.65) 100%);
+    z-index: 4;
+  }
+
+  #loading {
+    position: absolute; inset: 0;
+    background: var(--dark);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 200;
+  }
+  #loading.hidden { display: none; }
+  #loading h2 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    letter-spacing: 0.3em;
+    color: var(--neon-cyan);
+    margin-bottom: 20px;
+  }
+  .load-bar {
+    width: 220px; height: 3px;
+    background: rgba(0,245,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .load-bar-fill {
+    height: 100%; width: 40%;
+    background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink));
+    border-radius: 2px;
+    animation: loadPulse 1.2s ease-in-out infinite alternate;
+  }
+  @keyframes loadPulse { from { width: 20%; } to { width: 90%; } }
+
+  #debugPanel {
+    position: absolute;
+    top: 50%; left: 16px;
+    transform: translateY(-50%);
+    min-width: 210px;
+    border-color: rgba(255,230,0,0.22);
+    display: none;
+    z-index: 10;
+    line-height: 1.0;
+  }
+  #debugPanel.visible { display: block; }
+  #debugPanel .dbg-title {
+    font-family: var(--font-display);
+    font-size: 9px;
+    color: rgba(255,230,0,0.5);
+    letter-spacing: 0.2em;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255,230,0,0.12);
+    padding-bottom: 5px;
+  }
+  .dbg-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin: 5px 0;
+  }
+  .dbg-key  { color: rgba(255,230,0,0.42); font-size: 10px; white-space: nowrap; }
+  .dbg-val  { color: var(--neon-yellow); font-weight: bold; font-size: 11px; text-align: right; }
+  .dbg-sep  { border: none; border-top: 1px solid rgba(255,230,0,0.1); margin: 6px 0; }
+  #dbgSkipped { color: rgba(255,100,0,0.8); }
+
+  /* ── Mobile additions ── */
+  #flipCamBtn {
+    display: none;
+    position: absolute;
+    bottom: 56px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    background: rgba(0,10,20,0.82);
+    border: 1px solid var(--neon-cyan);
+    border-radius: 50%;
+    width: 52px; height: 52px;
+    font-size: 24px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 12px var(--neon-cyan), 0 0 24px rgba(0,245,255,0.25);
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  #flipCamBtn:active { transform: translateX(-50%) scale(0.92); }
+  #flipCamBtn.visible { display: flex; }
+
+  #touchFallbackMsg {
+    display: none;
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: var(--font-mono);
+    font-size: clamp(11px, 3vw, 14px);
+    color: var(--neon-yellow);
+    background: rgba(0,0,0,0.7);
+    padding: 14px 22px;
+    border: 1px solid rgba(255,230,0,0.4);
+    border-radius: 4px;
+    text-align: center;
+    letter-spacing: 0.08em;
+    z-index: 20;
+    pointer-events: none;
+    line-height: 1.8;
+    box-shadow: 0 0 18px rgba(255,230,0,0.15);
+  }
+  #touchFallbackMsg.visible { display: block; }
+
+  #orientMsg {
+    display: none;
+    position: absolute;
+    top: 50px; left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: clamp(10px, 2.5vw, 13px);
+    color: var(--neon-cyan);
+    background: rgba(0,0,0,0.6);
+    padding: 6px 16px;
+    border: 1px solid rgba(0,245,255,0.3);
+    border-radius: 3px;
+    z-index: 20;
+    pointer-events: none;
+    letter-spacing: 0.1em;
+  }
+  #orientMsg.visible { display: block; }
+
+  .panel { font-size: clamp(10px, 2vw, 14px); }
+  #controls { font-size: clamp(10px, 2vw, 13px); }
+  .hud-title, .ctrl-title { font-size: clamp(8px, 1.5vw, 9px); }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="preprocessCanvas"></canvas>
+  <canvas id="landmarkCanvas"></canvas>
+  <canvas id="drawCanvas"></canvas>
+  <canvas id="menuCanvas"></canvas>
+  <canvas id="particleCanvas"></canvas>
+
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+
+  <div id="title-badge">AIR DRAW<span>gesture canvas v3.0</span></div>
+
+  <div class="panel" id="hud">
+    <div class="hud-title">◈ System Status</div>
+    <div class="hud-row"><span class="hud-label">FPS</span><span class="hud-val" id="fpsVal">--</span></div>
+    <div class="hud-row"><span class="hud-label">Gesture</span><span class="hud-val" id="gestureVal">— IDLE</span></div>
+    <div class="hud-row"><span class="hud-label">Mode</span><span class="hud-val" id="stateVal">IDLE</span></div>
+    <div class="hud-row"><span class="hud-label">Style</span><span class="hud-val" id="modeVal">✏ FREE</span></div>
+    <div class="hud-row"><span class="hud-label">Brush</span><span><span id="brushSwatch"></span><span class="hud-val" id="brushVal">3px</span></span></div>
+    <div class="hud-row"><span class="hud-label">Strokes</span><span class="hud-val" id="strokesVal">0</span></div>
+    <div class="hud-row" id="mobileModeRow" style="display:none"><span style="color:var(--neon-yellow);font-size:10px;letter-spacing:0.1em">⚡ MOBILE MODE</span></div>
+  </div>
+
+  <div id="pinchIndicator">— Idle</div>
+  <div id="noHandMsg">◈ NO HAND DETECTED</div>
+  <button id="flipCamBtn" title="Flip camera">🔄</button>
+  <div id="touchFallbackMsg">⚠ HAND TRACKING UNAVAILABLE<br>Touch to draw · Tap and drag</div>
+  <div id="orientMsg">📱 Rotated</div>
+
+  <div class="panel" id="controls">
+    <div class="ctrl-title">◈ Gestures &amp; Controls</div>
+    <div class="ctrl-row"><span class="ctrl-gest">☝️</span> Draw (index up)</div>
+    <div class="ctrl-row"><span class="ctrl-gest">✌️</span> Erase (index+middle)</div>
+    <div class="ctrl-row"><span class="ctrl-gest">✋</span> Menu (all up, 600ms)</div>
+    <div class="ctrl-row"><span class="ctrl-gest">🤙</span> Select item</div>
+    <div class="ctrl-row"><span class="ctrl-gest">✊</span> Close menu</div>
+    <hr style="border:none;border-top:1px solid rgba(0,245,255,0.1);margin:5px 0">
+    <div class="ctrl-row"><span class="ctrl-key">C</span> Clear canvas</div>
+    <div class="ctrl-row"><span class="ctrl-key">Z</span> Undo stroke</div>
+    <div class="ctrl-row"><span class="ctrl-key">S</span> Save PNG</div>
+    <div class="ctrl-row"><span class="ctrl-key">+</span><span class="ctrl-key">-</span> Brush size</div>
+    <div class="ctrl-row"><span class="ctrl-key">D</span> Debug panel</div>
+  </div>
+
+  <div class="panel" id="debugPanel">
+    <div class="dbg-title">◈ Smoothing Debug</div>
+    <div class="dbg-row"><span class="dbg-key">Raw X / Y</span><span class="dbg-val" id="dbgRaw">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Smooth X / Y</span><span class="dbg-val" id="dbgSmooth">—</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row"><span class="dbg-key">EMA factor</span><span class="dbg-val" id="dbgEma">0.18</span></div>
+    <div class="dbg-row"><span class="dbg-key">Min dist</span><span class="dbg-val" id="dbgMinDist">2 px</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row"><span class="dbg-key">Stroke pts</span><span class="dbg-val" id="dbgPts">0</span></div>
+    <div class="dbg-row"><span class="dbg-key">Δ dist</span><span class="dbg-val" id="dbgDist">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Frame skip</span><span class="dbg-val" id="dbgSkipped">—</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row"><span class="dbg-key" style="color:rgba(255,230,0,0.35);font-size:9px">[ / ] tweak EMA ±0.01</span></div>
+    <div class="dbg-row"><span class="dbg-key" style="color:rgba(255,230,0,0.35);font-size:9px">; / ' tweak MinDist ±1</span></div>
+    <hr class="dbg-sep">
+    <div class="dbg-row" style="margin-bottom:2px"><span class="dbg-key" style="color:rgba(102,170,255,0.55);font-size:9px;letter-spacing:0.15em">◆ SHAPE DETECT</span></div>
+    <div class="dbg-row"><span class="dbg-key">Line score</span><span class="dbg-val" id="dbgLineScore">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Arrow line/head</span><span class="dbg-val" id="dbgArrowScore">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Circle score</span><span class="dbg-val" id="dbgCircleScore">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Rect score/corners</span><span class="dbg-val" id="dbgRectScore">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Tri score/corners</span><span class="dbg-val" id="dbgTriScore">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Winner</span><span class="dbg-val" id="dbgShapeWinner">—</span></div>
+    <div class="dbg-row"><span class="dbg-key">Pts raw/RDP</span><span class="dbg-val" id="dbgRdpPts">—</span></div>
+  </div>
+
+  <div id="palette"></div>
+
+  <div id="calibOverlay">
+    <div class="calib-box">
+      <h1>AIR DRAW</h1>
+      <div class="sub">◈ GESTURE CALIBRATION ◈</div>
+      <div class="calib-step">
+        Pinch your <strong>thumb</strong> and <strong>index finger</strong> together<br>
+        Hold for a moment while we measure your natural pinch distance.<br>
+        This personalises detection to your hand.
+      </div>
+      <div id="calibStatus">Initialising camera…</div>
+      <div id="calibProgress"><div id="calibProgressBar"></div></div>
+      <button id="skipCalib">Skip (use defaults)</button>
+    </div>
+  </div>
+
+  <div id="loading">
+    <h2>LOADING MEDIAPIPE</h2>
+    <div class="load-bar"><div class="load-bar-fill"></div></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  AIR DRAW — Phase 3: Landmark-Angle Gesture System
+// ══════════════════════════════════════════════════════════
+
+const $ = id => document.getElementById(id);
+
+// ── DOM refs ──
+const video       = $('video');
+const preprocessC = $('preprocessCanvas');
+const landmarkC   = $('landmarkCanvas');
+const drawC       = $('drawCanvas');
+const menuC       = $('menuCanvas');
+const particleC   = $('particleCanvas');
+const ppCtx       = preprocessC.getContext('2d');
+const lmCtx       = landmarkC.getContext('2d');
+const dCtx        = drawC.getContext('2d');
+const mCtx        = menuC.getContext('2d');
+const pCtx        = particleC.getContext('2d');
+
+// ══════════════════════════════════════════════════════════
+//  ── PARTICLE SYSTEM ──
+// ══════════════════════════════════════════════════════════
+
+let particlesEnabled = true;
+let particles = [];
+const MAX_PARTICLES      = 150;
+const MAX_PARTICLES_SLOW = 50;
+
+function spawnParticles(x, y, count, options = {}) {
+  if (!particlesEnabled) return;
+  const burst    = options.burst    || false;
+  const sizeMult = options.sizeMult || 0.4;
+  const speedMul = options.speedMul || 1;
+  const decayMin = options.decayMin || 0.02;
+  const decayMax = options.decayMax || 0.04;
+  const color    = options.color    || brushColor;
+
+  const maxP = fps < 20 ? MAX_PARTICLES_SLOW : MAX_PARTICLES;
+  const spawnCount = fps < 20 ? Math.min(count, 1) : count;
+
+  for (let i = 0; i < spawnCount; i++) {
+    if (particles.length >= maxP) particles.shift(); // remove oldest
+    let vx, vy;
+    if (burst) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (3 + Math.random() * 3) * speedMul;
+      vx = Math.cos(angle) * speed;
+      vy = Math.sin(angle) * speed;
+    } else {
+      vx = (Math.random() * 4) - 2;
+      vy = -(1 + Math.random() * 2);
+    }
+    particles.push({
+      x, y, vx, vy,
+      life:  1.0,
+      decay: decayMin + Math.random() * (decayMax - decayMin),
+      size:  Math.max(1, brushSize * sizeMult),
+      color
+    });
+  }
+}
+
+function spawnShapeBurst(cx, cy) {
+  spawnParticles(cx, cy, 30, {
+    burst: true, sizeMult: 0.8,
+    decayMin: 0.01, decayMax: 0.02,
+    color: brushColor
+  });
+}
+
+// Independent RAF loop — never blocks drawing loop
+(function particleLoop() {
+  requestAnimationFrame(particleLoop);
+  pCtx.clearRect(0, 0, particleC.width, particleC.height);
+  if (!particles.length) return;
+
+  pCtx.save();
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vy += 0.05; // gravity
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+
+    pCtx.globalAlpha  = p.life;
+    pCtx.shadowBlur   = 6;
+    pCtx.shadowColor  = p.color;
+    pCtx.fillStyle    = p.color;
+    pCtx.beginPath();
+    pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    pCtx.fill();
+  }
+  pCtx.globalAlpha = 1;
+  pCtx.shadowBlur  = 0;
+  pCtx.restore();
+})();
+
+// HUD
+const fpsVal     = $('fpsVal');
+const gestureVal = $('gestureVal');
+const stateVal   = $('stateVal');
+const brushVal   = $('brushVal');
+const strokesVal = $('strokesVal');
+const modeVal    = $('modeVal');
+const pinchInd   = $('pinchIndicator');
+const noHandMsg  = $('noHandMsg');
+
+// Calib
+const calibOverlay = $('calibOverlay');
+const calibStatus  = $('calibStatus');
+const calibBar     = $('calibProgressBar');
+const skipBtn      = $('skipCalib');
+const loadingDiv   = $('loading');
+
+// ── Config ──
+const COLORS = ['#ffffff','#00f5ff','#ff006e','#39ff14','#ffe600','#ff6600','#aa00ff'];
+const DEFAULT_THRESHOLD   = 0.08;
+const LUMA_THRESHOLD      = 80;
+const CALIB_FRAMES_NEEDED = 30;
+
+let EMA_FACTOR = 0.18;
+let MIN_DIST   = 2;
+
+// ── Drawing state ──
+let brushColor    = '#ffffff';
+let brushSize     = 3;
+let penDown       = false;
+let pinchThreshold = parseFloat(localStorage.getItem('pinchThreshold')) || DEFAULT_THRESHOLD;
+
+let currentStroke  = [];
+let strokes        = [];
+
+let emaX = null, emaY = null;
+let rawX = 0, rawY = 0;
+let lastStrokePoint = null;
+let skippedFrames   = 0;
+let debugVisible    = false;
+let handVisible     = false;
+let lastFrameTime   = performance.now();
+let fps = 0, frameCount = 0, fpsTimer = 0;
+let eraseMode = false;
+
+// Calibration
+let calibrating  = false;
+let calibSamples = [];
+let calibDone    = localStorage.getItem('calibDone') === '1';
+
+// ══════════════════════════════════════════════════════════
+//  ── GESTURE DETECTION STATE ──
+// ══════════════════════════════════════════════════════════
+
+// Landmark finger pairs [tip, base]
+const FINGER_PAIRS = {
+  THUMB:  [4,  2],
+  INDEX:  [8,  5],
+  MIDDLE: [12, 9],
+  RING:   [16, 13],
+  PINKY:  [20, 17],
+};
+
+const GESTURE_FRAMES       = 3;     // consecutive frames needed to confirm
+const GESTURE_COOLDOWN_MS  = 200;   // ms cooldown between gesture changes
+const OPEN_MENU_HOLD_MS    = 600;   // ms hold to open menu
+const SELECT_CONFIRM_MS    = 400;   // ms hover on item before selecting
+const SELECT_DEBOUNCE_MS   = 700;   // ms between consecutive selections
+const EXT_THRESHOLD        = 20;    // px: tip must be this much above base
+const CURL_THRESHOLD       = 5;     // px: tip within this of base = curled
+
+let gestureBuffer   = [];           // rolling window of raw detections
+let currentGesture  = 'IDLE';       // confirmed gesture
+let prevGesture     = 'IDLE';
+let gestureCooldown = 0;            // timestamp of last gesture change
+
+// OPEN_MENU hold tracking
+let openMenuHoldStart = null;
+
+// SELECT item hover-to-confirm
+let selectHoverStart = null;
+let selectHoveredItem = -1;
+let lastSelectTime   = 0;
+
+// ══════════════════════════════════════════════════════════
+//  ── RADIAL MENU STATE ──
+// ══════════════════════════════════════════════════════════
+
+const MENU_RADIUS     = 112;
+const ITEM_RADIUS     = 36;
+const MENU_CLOSE_DIST = 210;
+
+let menuOpen        = false;
+let menuPhase       = 'main';
+let menuAnchor      = { x: 0, y: 0 };
+let menuHoveredItem = -1;
+let shapeModeActive = false;
+
+const MENU_ITEMS = [
+  { icon: '✏',  label: 'Freehand',  id: 'freehand'  },
+  { icon: '◆',  label: 'Shape',     id: 'shape'     },
+  { icon: '◉',  label: 'Colour',    id: 'colour'    },
+  { icon: '⟷',  label: 'Brush',     id: 'brushsize' },
+  { icon: '↩',  label: 'Undo',      id: 'undo'      },
+  { icon: '✕',  label: 'Clear',     id: 'clear'     },
+  { icon: '✨',  label: 'Particles', id: 'particles' },
+];
+
+const COLOUR_ITEMS = [
+  { color: '#00f5ff', name: 'Cyan'   },
+  { color: '#ff006e', name: 'Pink'   },
+  { color: '#39ff14', name: 'Green'  },
+  { color: '#ffe600', name: 'Yellow' },
+  { color: '#ff6600', name: 'Orange' },
+  { color: '#aa00ff', name: 'Violet' },
+  { color: '#ffffff', name: 'White'  },
+];
+
+const BRUSH_SIZES = [
+  { label: 'XS', size: 1  },
+  { label: 'S',  size: 3  },
+  { label: 'M',  size: 6  },
+  { label: 'L',  size: 12 },
+  { label: 'XL', size: 20 },
+];
+
+// Shared finger position for menu RAF loop
+let fingerPos = { x: 0, y: 0 };
+
+// ── Resize canvases ──
+function resizeCanvases() {
+  const w = window.innerWidth, h = window.innerHeight;
+  [landmarkC, drawC, preprocessC, menuC, particleC].forEach(c => { c.width = w; c.height = h; });
+}
+resizeCanvases();
+window.addEventListener('resize', () => { resizeCanvases(); redrawAll(); });
+
+// ── Colour palette (bottom-right) ──
+const palette = $('palette');
+COLORS.forEach(c => {
+  const sw = document.createElement('div');
+  sw.className = 'color-swatch' + (c === brushColor ? ' active' : '');
+  sw.style.background = c;
+  sw.title = c;
+  sw.onclick = () => {
+    brushColor = c;
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+    sw.classList.add('active');
+    $('brushSwatch').style.background = c;
+  };
+  palette.appendChild(sw);
+});
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', e => {
+  switch (e.key.toUpperCase()) {
+    case 'C': clearCanvas(); break;
+    case 'Z': undoStroke();  break;
+    case 'S': saveCanvas();  break;
+    case '+': case '=': brushSize = Math.min(30, brushSize + 1); updateBrushHUD(); break;
+    case '-': case '_': brushSize = Math.max(1,  brushSize - 1); updateBrushHUD(); break;
+    case 'D': toggleDebug(); break;
+  }
+  if (debugVisible) {
+    if (e.key === '[') { EMA_FACTOR = Math.max(0.05, parseFloat((EMA_FACTOR - 0.01).toFixed(2))); updateDebugStatic(); }
+    if (e.key === ']') { EMA_FACTOR = Math.min(0.50, parseFloat((EMA_FACTOR + 0.01).toFixed(2))); updateDebugStatic(); }
+    if (e.key === ';') { MIN_DIST = Math.max(1, MIN_DIST - 1); updateDebugStatic(); }
+    if (e.key === "'") { MIN_DIST = Math.min(20, MIN_DIST + 1); updateDebugStatic(); }
+  }
+});
+
+function updateBrushHUD() {
+  brushVal.textContent = brushSize + 'px';
+  $('brushSwatch').style.background = brushColor;
+}
+
+function updateModeHUD() {
+  if (shapeModeActive) {
+    modeVal.textContent = '◆ SHAPE';
+    modeVal.classList.add('shape');
+  } else {
+    modeVal.textContent = '✏ FREE';
+    modeVal.classList.remove('shape');
+  }
+}
+
+// ── Debug ──
+const debugPanel = $('debugPanel');
+function toggleDebug() {
+  debugVisible = !debugVisible;
+  debugPanel.classList.toggle('visible', debugVisible);
+  if (debugVisible) updateDebugStatic();
+}
+function updateDebugStatic() {
+  $('dbgEma').textContent     = EMA_FACTOR.toFixed(2);
+  $('dbgMinDist').textContent = MIN_DIST + ' px';
+}
+function updateDebugLive(sx, sy, pts, dist, skipped) {
+  if (!debugVisible) return;
+  $('dbgRaw').textContent     = `${rawX.toFixed(1)}, ${rawY.toFixed(1)}`;
+  $('dbgSmooth').textContent  = `${sx.toFixed(1)}, ${sy.toFixed(1)}`;
+  $('dbgPts').textContent     = pts;
+  $('dbgDist').textContent    = dist < 0 ? '—' : dist.toFixed(1) + ' px';
+  $('dbgSkipped').textContent = skipped > 0 ? `+${skipped} skipped` : '—';
+  $('dbgSkipped').style.color = skipped > 0 ? 'rgba(255,100,0,0.8)' : 'rgba(255,230,0,0.4)';
+}
+
+function clearCanvas() {
+  dCtx.clearRect(0, 0, drawC.width, drawC.height);
+  strokes = []; currentStroke = [];
+  strokesVal.textContent = '0';
+}
+
+function undoStroke() {
+  if (!strokes.length) return;
+  strokes.pop();
+  redrawAll();
+  strokesVal.textContent = strokes.length;
+}
+
+function saveCanvas() {
+  const out = document.createElement('canvas');
+  out.width = drawC.width; out.height = drawC.height;
+  const oc = out.getContext('2d');
+  oc.save(); oc.scale(-1,1); oc.drawImage(video,-out.width,0,out.width,out.height); oc.restore();
+  oc.drawImage(drawC, 0, 0);
+  const a = document.createElement('a');
+  a.href = out.toDataURL('image/png');
+  a.download = 'airdraw_' + Date.now() + '.png';
+  a.click();
+}
+
+// ── Bezier stroke renderer ──
+function drawBezierStroke(ctx, pts, color, size, isEraser) {
+  if (pts.length < 2) return;
+  ctx.save();
+  if (isEraser) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0,0,0,1)';
+  } else {
+    ctx.strokeStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur  = size * 1.5;
+  }
+  ctx.lineWidth = size;
+  ctx.lineCap   = 'round';
+  ctx.lineJoin  = 'round';
+  ctx.beginPath();
+
+  if (pts.length === 2) {
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(pts[1].x, pts[1].y);
+  } else {
+    const fm = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+    ctx.moveTo(pts[0].x, pts[0].y);
+    ctx.lineTo(fm.x, fm.y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const p1  = pts[i], p2 = pts[i + 1];
+      const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      ctx.quadraticCurveTo(p1.x, p1.y, mid.x, mid.y);
+    }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPerfectShape(ctx, s) {
+  ctx.save();
+  ctx.strokeStyle = s.color;
+  ctx.shadowColor = s.color;
+  ctx.shadowBlur  = s.size * 2.5;
+  ctx.lineWidth   = s.size;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  ctx.beginPath();
+  if (s.shape === 'line') {
+    ctx.moveTo(s.pts[0].x, s.pts[0].y);
+    ctx.lineTo(s.pts[1].x, s.pts[1].y);
+  } else if (s.shape === 'circle') {
+    ctx.arc(s.cx, s.cy, s.r, 0, Math.PI * 2);
+  } else if (s.shape === 'rect') {
+    ctx.rect(s.minX, s.minY, s.width, s.height);
+  } else if (s.shape === 'triangle') {
+    ctx.moveTo(s.corners[0].x, s.corners[0].y);
+    ctx.lineTo(s.corners[1].x, s.corners[1].y);
+    ctx.lineTo(s.corners[2].x, s.corners[2].y);
+    ctx.closePath();
+  } else if (s.shape === 'arrow') {
+    // Main line
+    ctx.moveTo(s.pts[0].x, s.pts[0].y);
+    ctx.lineTo(s.pts[1].x, s.pts[1].y);
+    ctx.stroke();
+    // Arrowhead
+    ctx.beginPath();
+    const headSize = s.size * 8;
+    const dx = s.pts[1].x - s.pts[0].x;
+    const dy = s.pts[1].y - s.pts[0].y;
+    const angle = Math.atan2(dy, dx);
+    const a1 = angle + Math.PI - (25 * Math.PI / 180);
+    const a2 = angle + Math.PI + (25 * Math.PI / 180);
+    ctx.moveTo(s.pts[1].x, s.pts[1].y);
+    ctx.lineTo(s.pts[1].x + Math.cos(a1) * headSize, s.pts[1].y + Math.sin(a1) * headSize);
+    ctx.moveTo(s.pts[1].x, s.pts[1].y);
+    ctx.lineTo(s.pts[1].x + Math.cos(a2) * headSize, s.pts[1].y + Math.sin(a2) * headSize);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function redrawAll() {
+  dCtx.clearRect(0, 0, drawC.width, drawC.height);
+  for (const s of strokes) {
+    if (['line','circle','rect','triangle','arrow'].includes(s.shape)) {
+      drawPerfectShape(dCtx, s);
+    } else {
+      drawBezierStroke(dCtx, s.pts, s.color, s.size, s.eraser || false);
+    }
+  }
+}
+
+// ── Commit current stroke to history ──
+function commitStroke() {
+  if (currentStroke.length > 1) {
+    if (shapeModeActive && !eraseMode) {
+      // Shape detection path — capture pts and reset state before async work
+      const pts = [...currentStroke];
+      currentStroke   = [];
+      lastStrokePoint = null;
+      skippedFrames   = 0;
+      penDown         = false;
+      runShapeDetection(pts);
+      return;
+    }
+    const size = eraseMode ? brushSize * 3 : brushSize;
+    strokes.push({ pts: [...currentStroke], color: brushColor, size, eraser: eraseMode });
+    strokesVal.textContent = strokes.length;
+    redrawAll();
+  }
+  currentStroke   = [];
+  lastStrokePoint = null;
+  skippedFrames   = 0;
+  penDown         = false;
+}
+
+// ── Luminance check ──
+function getAvgLuminance(imgData) {
+  const d = imgData.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 16) sum += 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
+  return sum / (d.length / 16);
+}
+
+// ══════════════════════════════════════════════════════════
+//  ── SHAPE DETECTION ──
+// ══════════════════════════════════════════════════════════
+
+// RDP simplification
+function rdpSimplify(pts, epsilon) {
+  if (pts.length < 3) return pts;
+  let maxDist = 0, maxIdx = 0;
+  const first = pts[0], last = pts[pts.length - 1];
+  const dx = last.x - first.x, dy = last.y - first.y;
+  const len = Math.hypot(dx, dy);
+  for (let i = 1; i < pts.length - 1; i++) {
+    let d;
+    if (len === 0) {
+      d = Math.hypot(pts[i].x - first.x, pts[i].y - first.y);
+    } else {
+      d = Math.abs(dy*pts[i].x - dx*pts[i].y + last.x*first.y - last.y*first.x) / len;
+    }
+    if (d > maxDist) { maxDist = d; maxIdx = i; }
+  }
+  if (maxDist > epsilon) {
+    const left  = rdpSimplify(pts.slice(0, maxIdx + 1), epsilon);
+    const right = rdpSimplify(pts.slice(maxIdx), epsilon);
+    return [...left.slice(0, -1), ...right];
+  }
+  return [first, last];
+}
+
+// Ghost-fade then commit shape
+function ghostAndCommit(pts, shapeDef) {
+  // Draw freehand ghost
+  redrawAll();
+  drawBezierStroke(dCtx, pts, brushColor, brushSize, false);
+
+  const startTime = performance.now();
+  const GHOST_MS  = 300;
+
+  function fadeStep() {
+    const elapsed  = performance.now() - startTime;
+    const progress = Math.min(1, elapsed / GHOST_MS);
+    const opacity  = 1 - progress;
+
+    redrawAll();
+    dCtx.save();
+    dCtx.globalAlpha = opacity;
+    drawBezierStroke(dCtx, pts, brushColor, brushSize, false);
+    dCtx.restore();
+
+    if (progress < 1) {
+      requestAnimationFrame(fadeStep);
+    } else {
+      // Ghost done — commit perfect shape
+      strokes.push(shapeDef);
+      strokesVal.textContent = strokes.length;
+      redrawAll();
+      // Shape snap burst
+      let bx = 0, by = 0;
+      if (shapeDef.shape === 'circle') { bx = shapeDef.cx; by = shapeDef.cy; }
+      else if (shapeDef.shape === 'rect') { bx = shapeDef.minX + shapeDef.width/2; by = shapeDef.minY + shapeDef.height/2; }
+      else if (shapeDef.shape === 'triangle') { bx = (shapeDef.corners[0].x+shapeDef.corners[1].x+shapeDef.corners[2].x)/3; by = (shapeDef.corners[0].y+shapeDef.corners[1].y+shapeDef.corners[2].y)/3; }
+      else if (shapeDef.pts) { bx = (shapeDef.pts[0].x+shapeDef.pts[1].x)/2; by = (shapeDef.pts[0].y+shapeDef.pts[1].y)/2; }
+      spawnShapeBurst(bx, by);
+    }
+  }
+  requestAnimationFrame(fadeStep);
+}
+
+// Show "?" on no match
+function showQuestionMark(x, y) {
+  const startTime = performance.now();
+  function qStep() {
+    const elapsed = performance.now() - startTime;
+    if (elapsed > 800) return;
+    lmCtx.save();
+    lmCtx.font      = 'bold 16px "Share Tech Mono", monospace';
+    lmCtx.fillStyle = '#ff006e';
+    lmCtx.shadowColor = '#ff006e';
+    lmCtx.shadowBlur  = 10;
+    lmCtx.textAlign   = 'center';
+    lmCtx.textBaseline = 'middle';
+    lmCtx.fillText('?', x, y - 20);
+    lmCtx.restore();
+    requestAnimationFrame(qStep);
+  }
+  requestAnimationFrame(qStep);
+}
+
+// ── DETECTOR 1: LINE ──
+function detectLine(pts) {
+  if (pts.length < 2) return { score: 0 };
+  const first = pts[0], last = pts[pts.length - 1];
+  const strokeLen = Math.hypot(last.x - first.x, last.y - first.y);
+  if (strokeLen < 20) return { score: 0 };
+  const dx = last.x - first.x, dy = last.y - first.y;
+  let maxDev = 0;
+  for (const p of pts) {
+    const d = Math.abs(dy*p.x - dx*p.y + last.x*first.y - last.y*first.x) / strokeLen;
+    if (d > maxDev) maxDev = d;
+  }
+  const score = Math.max(0, 100 - (maxDev / strokeLen * 100));
+  return { score, maxDev, strokeLen };
+}
+
+// ── DETECTOR 2: CIRCLE ──
+function detectCircle(pts) {
+  if (pts.length < 8) return { score: 0 };
+  let cx = 0, cy = 0;
+  for (const p of pts) { cx += p.x; cy += p.y; }
+  cx /= pts.length; cy /= pts.length;
+
+  const radii = pts.map(p => Math.hypot(p.x - cx, p.y - cy));
+  const avgR  = radii.reduce((a,b) => a+b, 0) / radii.length;
+  if (avgR < 10) return { score: 0 };
+
+  const deviations = radii.map(r => Math.abs(r - avgR));
+  const maxDev = Math.max(...deviations);
+  const circularity = 1 - (maxDev / avgR);
+
+  // Check closure
+  const closureDist = Math.hypot(pts[0].x - pts[pts.length-1].x, pts[0].y - pts[pts.length-1].y);
+  const closureScore = Math.max(0, 1 - closureDist / (avgR * 2));
+
+  // Angular coverage
+  const angles = pts.map(p => Math.atan2(p.y - cy, p.x - cx));
+  angles.sort((a,b) => a - b);
+  let maxGap = 0;
+  for (let i = 1; i < angles.length; i++) maxGap = Math.max(maxGap, angles[i] - angles[i-1]);
+  maxGap = Math.max(maxGap, (angles[0] + Math.PI*2) - angles[angles.length-1]);
+  const coverage = Math.max(0, 1 - maxGap / (Math.PI * 2));
+
+  const score = (circularity * 0.5 + closureScore * 0.25 + coverage * 0.25) * 100;
+  return { score, cx, cy, r: avgR };
+}
+
+// ── DETECTOR 3: RECTANGLE ──
+function detectRect(pts) {
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const width = maxX - minX, height = maxY - minY;
+  if (width < 20 || height < 20) return { score: 0 };
+
+  const R = 25;
+  const corners = [
+    { x: minX, y: minY },
+    { x: maxX, y: minY },
+    { x: minX, y: maxY },
+    { x: maxX, y: maxY },
+  ];
+  let cornersVisited = 0;
+  for (const c of corners) {
+    if (pts.some(p => Math.hypot(p.x - c.x, p.y - c.y) <= R)) cornersVisited++;
+  }
+  const score = (cornersVisited / 4) * 100;
+  return { score, minX, minY, width, height, cornersVisited };
+}
+
+// ── DETECTOR 4: TRIANGLE ──
+function detectTriangle(rdpPts) {
+  if (rdpPts.length < 4) return { score: 0 };
+
+  // Split into 8 equal segments, find points with biggest direction change
+  const n = rdpPts.length;
+  const segCount = Math.min(8, n - 1);
+
+  // Sample evenly from rdpPts
+  const sampled = [];
+  for (let i = 0; i <= segCount; i++) {
+    const idx = Math.round((i / segCount) * (n - 1));
+    sampled.push(rdpPts[idx]);
+  }
+
+  // Compute direction change at each interior point
+  const changes = [];
+  for (let i = 1; i < sampled.length - 1; i++) {
+    const a = sampled[i-1], b = sampled[i], c = sampled[i+1];
+    const ax = b.x-a.x, ay = b.y-a.y;
+    const bx = c.x-b.x, by = c.y-b.y;
+    const la = Math.hypot(ax,ay), lb = Math.hypot(bx,by);
+    if (la < 1 || lb < 1) continue;
+    const dot = (ax*bx + ay*by) / (la * lb);
+    const change = 1 - Math.max(-1, Math.min(1, dot)); // bigger = sharper turn
+    changes.push({ change, pt: b });
+  }
+
+  if (changes.length < 3) return { score: 0 };
+  changes.sort((a,b) => b.change - a.change);
+  const topCorners = changes.slice(0, 3).map(c => c.pt);
+
+  // Validate angles between 20–150 degrees
+  let validCorners = 0;
+  for (let i = 0; i < 3; i++) {
+    const a = topCorners[(i+1) % 3];
+    const b = topCorners[i];
+    const c = topCorners[(i+2) % 3];
+    const ax = a.x-b.x, ay = a.y-b.y;
+    const cx = c.x-b.x, cy = c.y-b.y;
+    const la = Math.hypot(ax,ay), lc = Math.hypot(cx,cy);
+    if (la < 1 || lc < 1) continue;
+    const dot = (ax*cx + ay*cy) / (la * lc);
+    const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+    if (angleDeg >= 20 && angleDeg <= 150) validCorners++;
+  }
+
+  const score = validCorners === 3 ? 85 : 0;
+  return { score, corners: topCorners, validCorners };
+}
+
+// ── DETECTOR 5: ARROW ──
+function detectArrow(pts) {
+  // Step 1: line check
+  const lineResult = detectLine(pts);
+  if (lineResult.score <= 60) return { score: 0, lineScore: lineResult.score, arrowFound: false };
+
+  // Step 2: check last 15% for V-shape arrowhead
+  const tailStart = Math.floor(pts.length * 0.85);
+  const tailPts   = pts.slice(tailStart);
+  const endpoint  = pts[pts.length - 1];
+
+  if (tailPts.length < 3) return { score: 0, lineScore: lineResult.score, arrowFound: false };
+
+  // Find point furthest from endpoint = arrowhead tip
+  let furthest = tailPts[0], maxD = 0;
+  for (const p of tailPts) {
+    const d = Math.hypot(p.x - endpoint.x, p.y - endpoint.y);
+    if (d > maxD) { maxD = d; furthest = p; }
+  }
+
+  // Two arms: from furthest to endpoint, and one split before furthest
+  const tipIdx  = tailPts.indexOf(furthest);
+  const arm1pts = tailPts.slice(0, tipIdx + 1);
+  const arm2pts = tailPts.slice(tipIdx);
+
+  if (arm1pts.length < 2 || arm2pts.length < 2) return { score: 0, lineScore: lineResult.score, arrowFound: false };
+
+  const arm1dir = { x: furthest.x - arm1pts[0].x, y: furthest.y - arm1pts[0].y };
+  const arm2dir = { x: endpoint.x - furthest.x,   y: endpoint.y - furthest.y   };
+  const la1 = Math.hypot(arm1dir.x, arm1dir.y), la2 = Math.hypot(arm2dir.x, arm2dir.y);
+
+  let arrowFound = false;
+  if (la1 > 1 && la2 > 1) {
+    const dot = (arm1dir.x*arm2dir.x + arm1dir.y*arm2dir.y) / (la1 * la2);
+    const angleDeg = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+    arrowFound = angleDeg < 45;
+  }
+
+  const score = lineResult.score * 0.6 + (arrowFound ? 40 : 0);
+  return { score, lineScore: lineResult.score, arrowFound };
+}
+
+// ── Main shape detection runner ──
+function runShapeDetection(pts) {
+  if (pts.length < 2) {
+    // Commit as freehand
+    strokes.push({ pts, color: brushColor, size: brushSize });
+    strokesVal.textContent = strokes.length;
+    redrawAll();
+    return;
+  }
+
+  const rdpPts = rdpSimplify(pts, 4);
+
+  // Debug helpers
+  let dbgLine = '—', dbgArrow = '—', dbgCircle = '—', dbgRect = '—', dbgTri = '—';
+  let winner  = 'none';
+
+  // Priority 1: Line
+  const lineRes = detectLine(pts);
+  dbgLine = lineRes.score.toFixed(0);
+
+  if (lineRes.score > 70) {
+    winner = 'line';
+    dbgArrow = 'skip'; dbgCircle = 'skip'; dbgRect = 'skip'; dbgTri = 'skip';
+    const first = pts[0], last = pts[pts.length-1];
+    ghostAndCommit(pts, { shape:'line', pts:[first,last], color:brushColor, size:brushSize });
+  } else {
+    // Priority 2: Arrow
+    const arrowRes = detectArrow(pts);
+    dbgArrow = `${arrowRes.lineScore?.toFixed(0)||0}/${arrowRes.arrowFound?'✓':'✗'}`;
+
+    if (arrowRes.score > 70) {
+      winner = 'arrow';
+      dbgCircle = 'skip'; dbgRect = 'skip'; dbgTri = 'skip';
+      const first = pts[0], last = pts[pts.length-1];
+      ghostAndCommit(pts, { shape:'arrow', pts:[first,last], color:brushColor, size:brushSize });
+    } else {
+      // Priority 3: Circle
+      const circleRes = detectCircle(pts);
+      dbgCircle = circleRes.score.toFixed(0);
+
+      if (circleRes.score > 70) {
+        winner = 'circle';
+        dbgRect = 'skip'; dbgTri = 'skip';
+        ghostAndCommit(pts, { shape:'circle', cx:circleRes.cx, cy:circleRes.cy, r:circleRes.r, color:brushColor, size:brushSize });
+      } else {
+        // Priority 4: Rectangle
+        const rectRes = detectRect(pts);
+        dbgRect = `${rectRes.score?.toFixed(0)||0}/${rectRes.cornersVisited||0}c`;
+
+        if (rectRes.score > 70) {
+          winner = 'rect';
+          dbgTri = 'skip';
+          ghostAndCommit(pts, { shape:'rect', minX:rectRes.minX, minY:rectRes.minY, width:rectRes.width, height:rectRes.height, color:brushColor, size:brushSize });
+        } else {
+          // Priority 5: Triangle
+          const triRes = detectTriangle(rdpPts);
+          dbgTri = `${triRes.score?.toFixed(0)||0}/${triRes.validCorners||0}v`;
+
+          if (triRes.score > 70) {
+            winner = 'triangle';
+            ghostAndCommit(pts, { shape:'triangle', corners:triRes.corners, color:brushColor, size:brushSize });
+          } else {
+            // No match — keep freehand
+            winner = '?';
+            strokes.push({ pts, color: brushColor, size: brushSize });
+            strokesVal.textContent = strokes.length;
+            redrawAll();
+            const lastPt = pts[pts.length - 1];
+            showQuestionMark(lastPt.x, lastPt.y);
+          }
+        }
+      }
+    }
+  }
+
+  // Update debug panel
+  if (debugVisible) {
+    $('dbgLineScore').textContent   = dbgLine;
+    $('dbgArrowScore').textContent  = dbgArrow;
+    $('dbgCircleScore').textContent = dbgCircle;
+    $('dbgRectScore').textContent   = dbgRect;
+    $('dbgTriScore').textContent    = dbgTri;
+    $('dbgShapeWinner').textContent = winner;
+    $('dbgRdpPts').textContent      = `${pts.length} / ${rdpPts.length}`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  ── GESTURE DETECTION FUNCTIONS ──
+// ══════════════════════════════════════════════════════════
+
+/**
+ * Classify a single finger as extended or curled.
+ * Uses pixel-space y comparison on the mirrored frame.
+ * Extended : tipY < baseY - EXT_THRESHOLD   (tip is above base)
+ * Curled   : tipY > baseY - CURL_THRESHOLD  (tip not significantly above base)
+ */
+function fingerExtended(lm, tipIdx, baseIdx, H) {
+  return lm[tipIdx].y * H < lm[baseIdx].y * H - EXT_THRESHOLD;
+}
+function fingerCurled(lm, tipIdx, baseIdx, H) {
+  return lm[tipIdx].y * H > lm[baseIdx].y * H - CURL_THRESHOLD;
+}
+
+/**
+ * Classify raw gesture from landmarks.
+ * Returns one of: 'OPEN_MENU' | 'ERASE' | 'DRAW' | 'SELECT' | 'CLOSE_MENU' | 'IDLE'
+ */
+function getRawGesture(lm, H) {
+  const ext  = (t, b) => fingerExtended(lm, t, b, H);
+  const curl = (t, b) => fingerCurled(lm,   t, b, H);
+
+  const thumbExt   = ext(4, 2);
+  const indexExt   = ext(8, 5);
+  const middleExt  = ext(12, 9);
+  const ringExt    = ext(16, 13);
+  const pinkyExt   = ext(20, 17);
+
+  const thumbCurl  = curl(4, 2);
+  const indexCurl  = curl(8, 5);
+  const middleCurl = curl(12, 9);
+  const ringCurl   = curl(16, 13);
+  const pinkyCurl  = curl(20, 17);
+
+  // Priority 1 — OPEN MENU ✋ (all 5 extended)
+  if (thumbExt && indexExt && middleExt && ringExt && pinkyExt)
+    return 'OPEN_MENU';
+
+  // Priority 2 — ERASE ✌️ (index + middle extended, ring + pinky curled, thumb any)
+  if (indexExt && middleExt && ringCurl && pinkyCurl)
+    return 'ERASE';
+
+  // Priority 3 — DRAW ☝️ (index extended, middle + ring + pinky curled, thumb any)
+  if (indexExt && middleCurl && ringCurl && pinkyCurl)
+    return 'DRAW';
+
+  // Priority 4 — SELECT 🤙 (pinky + thumb extended, index + middle + ring curled)
+  if (pinkyExt && thumbExt && indexCurl && middleCurl && ringCurl)
+    return 'SELECT';
+
+  // Priority 5 — CLOSE MENU ✊ (all curled)
+  if (thumbCurl && indexCurl && middleCurl && ringCurl && pinkyCurl)
+    return 'CLOSE_MENU';
+
+  return 'IDLE';
+}
+
+/**
+ * Push raw detection into the stability buffer.
+ * A gesture is confirmed only after GESTURE_FRAMES consecutive identical detections,
+ * with a GESTURE_COOLDOWN_MS cooldown between changes.
+ * Returns true if the confirmed gesture changed this frame.
+ */
+function updateGestureBuffer(raw) {
+  gestureBuffer.push(raw);
+  if (gestureBuffer.length > GESTURE_FRAMES) gestureBuffer.shift();
+
+  if (gestureBuffer.length < GESTURE_FRAMES) return false;
+  if (!gestureBuffer.every(g => g === gestureBuffer[0])) return false;
+
+  const candidate = gestureBuffer[0];
+  if (candidate === currentGesture) return false;
+
+  const now = performance.now();
+  if (now - gestureCooldown < GESTURE_COOLDOWN_MS) return false;
+
+  prevGesture    = currentGesture;
+  currentGesture = candidate;
+  gestureCooldown = now;
+  return true;
+}
+
+/** Human-readable label for each gesture code. */
+function gestureLabel(g) {
+  switch (g) {
+    case 'DRAW':       return '☝️ DRAW';
+    case 'ERASE':      return '✌️ ERASE';
+    case 'OPEN_MENU':  return '✋ MENU';
+    case 'SELECT':     return '🤙 SELECT';
+    case 'CLOSE_MENU': return '✊ CLOSED';
+    default:           return '— IDLE';
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  ── RADIAL MENU FUNCTIONS ──
+// ══════════════════════════════════════════════════════════
+
+function openMenu(x, y) {
+  menuOpen        = true;
+  menuPhase       = 'main';
+  menuAnchor      = { x, y };
+  menuHoveredItem = -1;
+  openMenuHoldStart = null;
+  commitStroke();
+  eraseMode = false;
+  redrawAll();
+}
+
+function closeMenu() {
+  menuOpen        = false;
+  menuPhase       = 'main';
+  menuHoveredItem = -1;
+  openMenuHoldStart = null;
+  selectHoverStart  = null;
+  selectHoveredItem = -1;
+}
+
+function handleMenuHover(fx, fy) {
+  const items = menuPhase === 'colour' ? COLOUR_ITEMS :
+                menuPhase === 'size'   ? BRUSH_SIZES  : MENU_ITEMS;
+  const n = items.length;
+  let hit = -1;
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const ix = menuAnchor.x + Math.cos(angle) * MENU_RADIUS;
+    const iy = menuAnchor.y + Math.sin(angle) * MENU_RADIUS;
+    if (Math.hypot(fx - ix, fy - iy) < 40) { hit = i; break; }
+  }
+  menuHoveredItem = hit;
+}
+
+function selectMenuItem(idx) {
+  if (menuPhase === 'colour') {
+    brushColor = COLOUR_ITEMS[idx].color;
+    document.querySelectorAll('.color-swatch').forEach((sw, i) => {
+      sw.classList.toggle('active', COLORS[i] === brushColor);
+    });
+    $('brushSwatch').style.background = brushColor;
+    menuPhase = 'main';
+    menuHoveredItem = -1;
+    return;
+  }
+  if (menuPhase === 'size') {
+    brushSize = BRUSH_SIZES[idx].size;
+    updateBrushHUD();
+    menuPhase = 'main';
+    menuHoveredItem = -1;
+    return;
+  }
+  const item = MENU_ITEMS[idx];
+  switch (item.id) {
+    case 'freehand':  shapeModeActive = false; updateModeHUD(); closeMenu(); break;
+    case 'shape':     shapeModeActive = true;  updateModeHUD(); closeMenu(); break;
+    case 'colour':    menuPhase = 'colour'; menuHoveredItem = -1; break;
+    case 'brushsize': menuPhase = 'size';   menuHoveredItem = -1; break;
+    case 'undo':      undoStroke(); closeMenu(); break;
+    case 'clear':     clearCanvas(); closeMenu(); break;
+    case 'particles':
+      particlesEnabled = !particlesEnabled;
+      if (!particlesEnabled) particles = []; // fade out existing
+      MENU_ITEMS[idx].icon  = particlesEnabled ? '✨' : '○';
+      MENU_ITEMS[idx].label = particlesEnabled ? 'Particles' : 'Particles';
+      closeMenu();
+      break;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  ── MENU CANVAS RENDER (separate RAF loop) ──
+// ══════════════════════════════════════════════════════════
+
+function drawMenuOverlay() {
+  mCtx.clearRect(0, 0, menuC.width, menuC.height);
+  const t = performance.now();
+
+  // ── Progress ring (open-menu hold indicator) ──
+  if (!menuOpen && currentGesture === 'OPEN_MENU' && openMenuHoldStart !== null) {
+    const elapsed  = t - openMenuHoldStart;
+    const progress = Math.min(1, elapsed / OPEN_MENU_HOLD_MS);
+    const fx = fingerPos.x, fy = fingerPos.y;
+    const ringR = 28;
+
+    mCtx.save();
+    mCtx.beginPath();
+    mCtx.arc(fx, fy, ringR, 0, Math.PI * 2);
+    mCtx.strokeStyle = 'rgba(0,245,255,0.14)';
+    mCtx.lineWidth = 3;
+    mCtx.stroke();
+
+    mCtx.beginPath();
+    mCtx.arc(fx, fy, ringR, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+    mCtx.strokeStyle = '#00f5ff';
+    mCtx.lineWidth = 3;
+    mCtx.shadowColor = '#00f5ff';
+    mCtx.shadowBlur  = 10 + progress * 12;
+    mCtx.stroke();
+
+    // Percentage label
+    mCtx.font      = '9px "Share Tech Mono", monospace';
+    mCtx.fillStyle = 'rgba(0,245,255,0.7)';
+    mCtx.textAlign = 'center';
+    mCtx.textBaseline = 'middle';
+    mCtx.shadowBlur = 0;
+    mCtx.fillText(Math.round(progress * 100) + '%', fx, fy);
+    mCtx.restore();
+  }
+
+  // ── SELECT cursor ring (when menu open + SELECT gesture) ──
+  if (menuOpen && currentGesture === 'SELECT') {
+    const px = fingerPos.x, py = fingerPos.y;
+    const ringR = 10;
+    mCtx.save();
+    mCtx.beginPath();
+    mCtx.arc(px, py, ringR, 0, Math.PI * 2);
+    mCtx.strokeStyle = '#00f5ff';
+    mCtx.lineWidth = 2;
+    mCtx.shadowColor = '#00f5ff';
+    mCtx.shadowBlur = 12;
+    mCtx.stroke();
+
+    // Fill ring if hovering an item
+    if (menuHoveredItem !== -1 && selectHoverStart !== null) {
+      const elapsed  = performance.now() - selectHoverStart;
+      const progress = Math.min(1, elapsed / SELECT_CONFIRM_MS);
+      mCtx.beginPath();
+      mCtx.arc(px, py, ringR, -Math.PI/2, -Math.PI/2 + progress * Math.PI * 2);
+      mCtx.strokeStyle = '#ff006e';
+      mCtx.lineWidth = 2.5;
+      mCtx.shadowColor = '#ff006e';
+      mCtx.shadowBlur = 14;
+      mCtx.stroke();
+    }
+    mCtx.restore();
+  }
+
+  // ── Radial menu ──
+  if (menuOpen) {
+    renderRadialMenu(t);
+  }
+}
+
+function renderRadialMenu(t) {
+  const cx = menuAnchor.x, cy = menuAnchor.y;
+  const items = menuPhase === 'colour' ? COLOUR_ITEMS :
+                menuPhase === 'size'   ? BRUSH_SIZES  : MENU_ITEMS;
+  const n = items.length;
+
+  // Background disc
+  mCtx.save();
+  const discR = MENU_RADIUS + ITEM_RADIUS + 18;
+  mCtx.beginPath();
+  mCtx.arc(cx, cy, discR, 0, Math.PI * 2);
+  mCtx.fillStyle = 'rgba(10,10,15,0.85)';
+  mCtx.fill();
+  mCtx.strokeStyle = 'rgba(0,245,255,0.30)';
+  mCtx.lineWidth   = 1;
+  mCtx.shadowColor = '#00f5ff';
+  mCtx.shadowBlur  = 10;
+  mCtx.stroke();
+  mCtx.restore();
+
+  // Active colour dot in centre
+  mCtx.save();
+  mCtx.beginPath();
+  mCtx.arc(cx, cy, 11, 0, Math.PI * 2);
+  mCtx.fillStyle   = brushColor;
+  mCtx.shadowColor = brushColor;
+  mCtx.shadowBlur  = 20;
+  mCtx.fill();
+  mCtx.restore();
+
+  // Phase label beneath centre dot
+  mCtx.save();
+  mCtx.font         = '7px "Share Tech Mono", monospace';
+  mCtx.fillStyle    = 'rgba(0,245,255,0.38)';
+  mCtx.textAlign    = 'center';
+  mCtx.textBaseline = 'top';
+  const phaseLabel  = menuPhase === 'colour' ? '◈ COLOUR' :
+                      menuPhase === 'size'   ? '◈ BRUSH'  : 'MENU';
+  mCtx.fillText(phaseLabel, cx, cy + 14);
+  mCtx.restore();
+
+  // Items
+  for (let i = 0; i < n; i++) {
+    const angle   = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const ix      = cx + Math.cos(angle) * MENU_RADIUS;
+    const iy      = cy + Math.sin(angle) * MENU_RADIUS;
+    const hovered = menuHoveredItem === i;
+    const pulse   = hovered ? (Math.sin(t / 160) * 0.5 + 0.5) : 0;
+    const r       = hovered ? ITEM_RADIUS * 1.2 : ITEM_RADIUS;
+
+    mCtx.save();
+
+    mCtx.beginPath();
+    mCtx.arc(ix, iy, r, 0, Math.PI * 2);
+    mCtx.fillStyle   = hovered ? 'rgba(0,245,255,0.16)' : 'rgba(4,12,24,0.92)';
+    mCtx.fill();
+    mCtx.strokeStyle = hovered ? '#00f5ff' : 'rgba(0,245,255,0.38)';
+    mCtx.lineWidth   = hovered ? 1.5 : 1;
+    mCtx.shadowColor = '#00f5ff';
+    mCtx.shadowBlur  = hovered ? 14 + pulse * 16 : 4;
+    mCtx.stroke();
+
+    if (menuPhase === 'colour') {
+      const col = COLOUR_ITEMS[i].color;
+      mCtx.beginPath();
+      mCtx.arc(ix, iy, r * 0.52, 0, Math.PI * 2);
+      mCtx.fillStyle   = col;
+      mCtx.shadowColor = col;
+      mCtx.shadowBlur  = hovered ? 22 : 8;
+      mCtx.fill();
+
+    } else if (menuPhase === 'size') {
+      const bs   = BRUSH_SIZES[i];
+      const dotR = Math.min(bs.size * 0.95, r * 0.50);
+      mCtx.beginPath();
+      mCtx.arc(ix, iy - 6, dotR, 0, Math.PI * 2);
+      mCtx.fillStyle   = brushColor;
+      mCtx.shadowColor = brushColor;
+      mCtx.shadowBlur  = 8;
+      mCtx.fill();
+
+      mCtx.shadowBlur  = 0;
+      mCtx.font        = `bold 9px "Share Tech Mono", monospace`;
+      mCtx.fillStyle   = hovered ? '#00f5ff' : 'rgba(0,245,255,0.65)';
+      mCtx.textAlign   = 'center';
+      mCtx.textBaseline = 'alphabetic';
+      mCtx.fillText(bs.label, ix, iy + r * 0.52);
+
+    } else {
+      const item  = MENU_ITEMS[i];
+      const iSize = Math.round(r * 0.60);
+      // For particles item, dim when disabled
+      const isParticlesOff = item.id === 'particles' && !particlesEnabled;
+      mCtx.font         = `${iSize}px "Share Tech Mono", monospace`;
+      mCtx.fillStyle    = isParticlesOff ? 'rgba(120,120,120,0.6)' : (hovered ? '#00f5ff' : 'rgba(200,235,255,0.88)');
+      mCtx.shadowColor  = hovered ? '#00f5ff' : 'transparent';
+      mCtx.shadowBlur   = hovered ? 10 : 0;
+      mCtx.textAlign    = 'center';
+      mCtx.textBaseline = 'middle';
+      mCtx.fillText(item.icon, ix, iy - 5);
+
+      mCtx.font         = '8px "Share Tech Mono", monospace';
+      mCtx.fillStyle    = isParticlesOff ? 'rgba(120,120,120,0.5)' : (hovered ? '#00f5ff' : 'rgba(0,245,255,0.55)');
+      mCtx.shadowBlur   = 0;
+      mCtx.textBaseline = 'top';
+      mCtx.fillText((item.id === 'particles' ? (particlesEnabled ? 'PTCL ON' : 'PTCL OFF') : item.label.toUpperCase()), ix, iy + r * 0.36);
+    }
+
+    mCtx.restore();
+  }
+}
+
+// Independent RAF render loop for menu canvas
+(function menuLoop() {
+  requestAnimationFrame(menuLoop);
+  drawMenuOverlay();
+})();
+
+// ── Landmark drawing ──
+function drawLandmarks(results, curEmaX, curEmaY) {
+  lmCtx.clearRect(0, 0, landmarkC.width, landmarkC.height);
+  if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) return;
+
+  const W = landmarkC.width, H = landmarkC.height;
+  const landmarks = results.multiHandLandmarks[0];
+
+  const CONNECTIONS = window.HAND_CONNECTIONS || [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [5,9],[9,10],[10,11],[11,12],
+    [9,13],[13,14],[14,15],[15,16],
+    [13,17],[17,18],[18,19],[19,20],[0,17]
+  ];
+
+  // Connection colour changes per gesture
+  const connColor = eraseMode    ? 'rgba(255,230,0,0.40)' :
+                    penDown       ? 'rgba(255,0,110,0.40)' :
+                    menuOpen      ? 'rgba(0,245,255,0.55)' :
+                                   'rgba(0,245,255,0.35)';
+
+  lmCtx.save();
+  lmCtx.strokeStyle = connColor;
+  lmCtx.lineWidth   = 1.5;
+  for (const [a,b] of CONNECTIONS) {
+    const la = landmarks[a], lb = landmarks[b];
+    lmCtx.beginPath();
+    lmCtx.moveTo((1-la.x)*W, la.y*H);
+    lmCtx.lineTo((1-lb.x)*W, lb.y*H);
+    lmCtx.stroke();
+  }
+
+  // Landmark dots — highlight key tips by gesture
+  for (let i = 0; i < landmarks.length; i++) {
+    const lm = landmarks[i];
+    const x = (1-lm.x)*W, y = lm.y*H;
+
+    let isKey = false, dotColor = 'rgba(0,245,255,0.55)', glow = 'transparent', glowR = 0;
+
+    if (eraseMode && (i === 8 || i === 12)) {
+      // Erase: highlight index + middle tips yellow
+      isKey = true; dotColor = 'rgba(255,230,0,0.95)'; glow = '#ffe600'; glowR = 10;
+    } else if (currentGesture === 'SELECT' && i === 20) {
+      // Select: highlight pinky tip cyan
+      isKey = true; dotColor = 'rgba(0,245,255,0.95)'; glow = '#00f5ff'; glowR = 10;
+    } else if (currentGesture === 'OPEN_MENU' && [4,8,12,16,20].includes(i)) {
+      // Open menu: all tips glow cyan
+      isKey = true; dotColor = 'rgba(0,245,255,0.95)'; glow = '#00f5ff'; glowR = 8;
+    } else if (i === 8) {
+      isKey = true;
+      dotColor  = penDown ? 'rgba(255,0,110,0.95)' : 'rgba(0,245,255,0.95)';
+      glow      = penDown ? '#ff006e' : '#00f5ff';
+      glowR     = 10;
+    }
+
+    lmCtx.beginPath();
+    lmCtx.arc(x, y, isKey ? 5 : 2.5, 0, Math.PI*2);
+    lmCtx.fillStyle   = dotColor;
+    lmCtx.shadowColor = glow;
+    lmCtx.shadowBlur  = glowR;
+    lmCtx.fill();
+  }
+  lmCtx.restore();
+
+  // ── Eraser preview circle ──
+  if (eraseMode && curEmaX !== null) {
+    const eraserR = (brushSize * 3) / 2;
+    lmCtx.save();
+    lmCtx.beginPath();
+    lmCtx.arc(curEmaX, curEmaY, eraserR, 0, Math.PI * 2);
+    lmCtx.strokeStyle = 'rgba(255,230,0,0.85)';
+    lmCtx.lineWidth   = 2;
+    lmCtx.shadowColor = '#ffe600';
+    lmCtx.shadowBlur  = 14;
+    lmCtx.setLineDash([4, 3]);
+    lmCtx.stroke();
+    lmCtx.restore();
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  ── HAND PROCESSING ──
+// ══════════════════════════════════════════════════════════
+
+function processHand(results) {
+  // ── FPS counter ──
+  const now = performance.now();
+  const dt  = now - lastFrameTime;
+  lastFrameTime = now;
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 500) {
+    fps = Math.round(frameCount / (fpsTimer / 1000));
+    fpsVal.textContent = fps;
+    fpsVal.style.color = fps >= 25 ? '#39ff14' : fps >= 15 ? '#ffe600' : '#ff006e';
+    frameCount = 0; fpsTimer = 0;
+  }
+
+  // ── No hand ──
+  if (!results.multiHandLandmarks || !results.multiHandLandmarks.length) {
+    drawLandmarks(results, null, null);
+    handVisible = false;
+    noHandMsg.style.display = 'block';
+
+    gestureVal.textContent = 'NO HAND';
+    stateVal.textContent   = 'NO HAND';
+    stateVal.className     = '';
+    pinchInd.textContent   = '◈ No hand';
+    pinchInd.style.color   = 'rgba(255,230,0,0.6)';
+
+    // Commit any open stroke
+    commitStroke();
+    eraseMode = false;
+    emaX = null; emaY = null;
+    gestureBuffer = [];
+    currentGesture = 'IDLE';
+    openMenuHoldStart = null;
+    if (menuOpen) closeMenu();
+    return;
+  }
+
+  handVisible = true;
+  noHandMsg.style.display = 'none';
+
+  const W = drawC.width, H = drawC.height;
+  const lm = results.multiHandLandmarks[0];
+
+  // ── Compute EMA-smoothed index fingertip early (needed for drawLandmarks) ──
+  rawX = (1 - lm[8].x) * W;
+  rawY = lm[8].y * H;
+  if (emaX === null) { emaX = rawX; emaY = rawY; }
+  emaX = EMA_FACTOR * rawX + (1 - EMA_FACTOR) * emaX;
+  emaY = EMA_FACTOR * rawY + (1 - EMA_FACTOR) * emaY;
+
+  // Pinky tip (pixel, mirrored)
+  const pinkyX = (1 - lm[20].x) * W;
+  const pinkyY = lm[20].y * H;
+
+  // Palm center = average of landmarks 0, 5, 9, 13, 17
+  const PALM_IDX = [0, 5, 9, 13, 17];
+  const palmX = PALM_IDX.reduce((s, i) => s + (1 - lm[i].x) * W, 0) / PALM_IDX.length;
+  const palmY = PALM_IDX.reduce((s, i) => s + lm[i].y * H, 0) / PALM_IDX.length;
+
+  // Draw landmarks now that EMA is current
+  drawLandmarks(results, emaX, emaY);
+
+  // ── Calibration (legacy pinch calibration, kept for compatibility) ──
+  if (calibrating) {
+    const rawThumbX = (1 - lm[4].x) * W;
+    const rawThumbY = lm[4].y * H;
+    const wristX    = (1 - lm[0].x) * W;
+    const wristY    = lm[0].y * H;
+    const midX      = (1 - lm[12].x) * W;
+    const midY      = lm[12].y * H;
+    const handSize  = Math.hypot(midX - wristX, midY - wristY);
+    const pinchDist = Math.hypot(rawThumbX - emaX, rawThumbY - emaY);
+    const normPinch = handSize > 0 ? pinchDist / handSize : 1;
+
+    if (normPinch < 0.15) {
+      calibSamples.push(normPinch);
+      const pct = Math.min(100, (calibSamples.length / CALIB_FRAMES_NEEDED) * 100);
+      calibBar.style.width = pct + '%';
+      calibStatus.textContent = `Sampling pinch… ${calibSamples.length}/${CALIB_FRAMES_NEEDED}`;
+      if (calibSamples.length >= CALIB_FRAMES_NEEDED) {
+        const avg = calibSamples.reduce((a,b) => a+b, 0) / calibSamples.length;
+        pinchThreshold = Math.min(0.18, avg * 1.3);
+        localStorage.setItem('pinchThreshold', pinchThreshold.toFixed(4));
+        localStorage.setItem('calibDone', '1');
+        finishCalib();
+      }
+    } else {
+      calibStatus.textContent = 'Pinch thumb + index together…';
+    }
+    return;
+  }
+
+  // ── Update shared finger position for menu RAF ──
+  fingerPos.x = emaX;
+  fingerPos.y = emaY;
+
+  // ── Gesture detection pipeline ──
+  const rawGesture = getRawGesture(lm, H);
+  updateGestureBuffer(rawGesture);
+
+  // Update gesture HUD
+  gestureVal.textContent = gestureLabel(currentGesture);
+
+  // ══════════════════════════════════════════════
+  //  MENU IS OPEN
+  // ══════════════════════════════════════════════
+  if (menuOpen) {
+    switch (currentGesture) {
+
+      // ── CLOSE MENU ✊ ──
+      case 'CLOSE_MENU':
+        closeMenu();
+        stateVal.textContent = 'CLOSED';
+        stateVal.className   = '';
+        pinchInd.textContent = '✊ Closed';
+        pinchInd.style.color = '#ffe600';
+        break;
+
+      // ── SELECT item 🤙 ──
+      case 'SELECT': {
+        // Move selection cursor to pinky tip
+        handleMenuHover(pinkyX, pinkyY);
+        fingerPos.x = pinkyX;
+        fingerPos.y = pinkyY;
+
+        const now2 = performance.now();
+
+        if (menuHoveredItem !== -1) {
+          if (menuHoveredItem !== selectHoveredItem) {
+            // New item — reset hover timer
+            selectHoverStart  = now2;
+            selectHoveredItem = menuHoveredItem;
+          } else if (selectHoverStart !== null &&
+                     now2 - selectHoverStart >= SELECT_CONFIRM_MS &&
+                     now2 - lastSelectTime   >= SELECT_DEBOUNCE_MS) {
+            // Hover held long enough → select
+            selectMenuItem(menuHoveredItem);
+            lastSelectTime   = now2;
+            selectHoverStart = null;
+          }
+        } else {
+          selectHoverStart  = null;
+          selectHoveredItem = -1;
+        }
+
+        stateVal.textContent = 'MENU';
+        stateVal.className   = 'menu';
+        pinchInd.textContent = '🤙 Select';
+        pinchInd.style.color = '#00f5ff';
+        break;
+      }
+
+      // ── All other gestures while menu open: hover with index ──
+      default:
+        handleMenuHover(emaX, emaY);
+        selectHoverStart  = null;
+        selectHoveredItem = -1;
+        stateVal.textContent = 'MENU';
+        stateVal.className   = 'menu';
+        pinchInd.textContent = '⊕ Menu';
+        pinchInd.style.color = '#00f5ff';
+        break;
+    }
+
+    updateDebugLive(emaX, emaY, 0, -1, 0);
+    return;
+  }
+
+  // ══════════════════════════════════════════════
+  //  OPEN MENU GESTURE ✋ (hold 600ms)
+  // ══════════════════════════════════════════════
+  if (currentGesture === 'OPEN_MENU') {
+    if (openMenuHoldStart === null) openMenuHoldStart = performance.now();
+
+    // Commit any ongoing stroke
+    if (penDown) {
+      commitStroke();
+      eraseMode = false;
+    }
+
+    // Move finger ref to palm center for visual feedback
+    fingerPos.x = palmX;
+    fingerPos.y = palmY;
+
+    const elapsed = performance.now() - openMenuHoldStart;
+    if (elapsed >= OPEN_MENU_HOLD_MS) {
+      openMenu(palmX, palmY);
+    }
+
+    stateVal.textContent = 'OPENING…';
+    stateVal.className   = 'menu';
+    pinchInd.textContent = '✋ Hold…';
+    pinchInd.style.color = '#00f5ff';
+    updateDebugLive(emaX, emaY, 0, -1, 0);
+    return;
+  } else {
+    // Not OPEN_MENU — reset hold timer
+    openMenuHoldStart = null;
+  }
+
+  // ══════════════════════════════════════════════
+  //  DRAW MODE ☝️
+  // ══════════════════════════════════════════════
+  if (currentGesture === 'DRAW') {
+    // If we were erasing, commit erase stroke first
+    if (eraseMode) {
+      commitStroke();
+      eraseMode = false;
+    }
+    penDown = true;
+
+    const newPt = { x: emaX, y: emaY };
+    let distFromLast = -1, skipped = false;
+
+    if (lastStrokePoint !== null) {
+      distFromLast = Math.hypot(newPt.x - lastStrokePoint.x, newPt.y - lastStrokePoint.y);
+      if (distFromLast < MIN_DIST) { skipped = true; skippedFrames++; }
+    }
+
+    if (!skipped) {
+      currentStroke.push({ x: newPt.x, y: newPt.y });
+      lastStrokePoint = { x: newPt.x, y: newPt.y };
+      skippedFrames = 0;
+      if (currentStroke.length >= 3) {
+        redrawAll();
+        drawBezierStroke(dCtx, currentStroke, brushColor, brushSize, false);
+      }
+      // Spawn draw particles
+      const spawnN = fps < 20 ? 1 : (2 + Math.floor(Math.random() * 2));
+      spawnParticles(newPt.x, newPt.y, spawnN);
+    }
+
+    stateVal.textContent = 'DRAWING';
+    stateVal.className   = 'drawing';
+    pinchInd.textContent = '✏️ Drawing';
+    pinchInd.style.color = '#ff006e';
+    updateDebugLive(emaX, emaY, currentStroke.length, distFromLast, skippedFrames);
+    return;
+  }
+
+  // ══════════════════════════════════════════════
+  //  ERASE MODE ✌️
+  // ══════════════════════════════════════════════
+  if (currentGesture === 'ERASE') {
+    // If we were drawing, commit draw stroke first
+    if (penDown && !eraseMode) {
+      commitStroke();
+    }
+    eraseMode = true;
+    penDown   = true;
+
+    const newPt = { x: emaX, y: emaY };
+    let distFromLast = -1, skipped = false;
+    const eraserSize = brushSize * 3;
+
+    if (lastStrokePoint !== null) {
+      distFromLast = Math.hypot(newPt.x - lastStrokePoint.x, newPt.y - lastStrokePoint.y);
+      if (distFromLast < MIN_DIST) { skipped = true; skippedFrames++; }
+    }
+
+    if (!skipped) {
+      currentStroke.push({ x: newPt.x, y: newPt.y });
+      lastStrokePoint = { x: newPt.x, y: newPt.y };
+      skippedFrames = 0;
+      if (currentStroke.length >= 3) {
+        redrawAll();
+        drawBezierStroke(dCtx, currentStroke, null, eraserSize, true);
+      }
+    }
+
+    stateVal.textContent = 'ERASING';
+    stateVal.className   = 'erasing';
+    pinchInd.textContent = '✌️ Erasing';
+    pinchInd.style.color = '#ffe600';
+    updateDebugLive(emaX, emaY, currentStroke.length, distFromLast, skippedFrames);
+    return;
+  }
+
+  // ══════════════════════════════════════════════
+  //  IDLE / CLOSE_MENU (no menu open) / SELECT (no menu)
+  // ══════════════════════════════════════════════
+  if (penDown) {
+    commitStroke();
+    eraseMode = false;
+  }
+
+  const idleLabel = currentGesture === 'CLOSE_MENU' ? '✊ Fist' :
+                    currentGesture === 'SELECT'      ? '🤙 Ready' : '✋ Hovering';
+  pinchInd.textContent = idleLabel;
+  pinchInd.style.color = 'rgba(0,245,255,0.7)';
+  stateVal.textContent = 'IDLE';
+  stateVal.className   = '';
+
+  updateDebugLive(emaX, emaY, 0, -1, 0);
+}
+
+// ── Calibration ──
+function startCalib() {
+  calibrating  = true;
+  calibSamples = [];
+  calibBar.style.width = '0%';
+  calibStatus.textContent = 'Show your hand to the camera…';
+  calibOverlay.classList.remove('hidden');
+}
+function finishCalib() {
+  calibrating = false;
+  calibOverlay.classList.add('hidden');
+}
+skipBtn.onclick = () => {
+  calibrating = false;
+  localStorage.setItem('calibDone', '1');
+  finishCalib();
+};
+
+// ══════════════════════════════════════════════════════════
+//  ── MOBILE SUPPORT ──
+// ══════════════════════════════════════════════════════════
+
+const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+let currentFacingMode = 'user';
+let touchDrawActive = false;
+let currentMediaStream = null;
+
+if (isMobile) {
+  $('mobileModeRow').style.display = 'flex';
+  $('flipCamBtn').classList.add('visible');
+  const sl = $('scanlines');
+  if (sl) sl.style.display = 'none';
+}
+
+// ── Touch drawing fallback ──
+function enableTouchFallback() {
+  $('touchFallbackMsg').classList.add('visible');
+  drawC.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    const rect = drawC.getBoundingClientRect();
+    const x = (t.clientX - rect.left) * (drawC.width / rect.width);
+    const y = (t.clientY - rect.top)  * (drawC.height / rect.height);
+    touchDrawActive = true;
+    currentStroke = [{ x, y }];
+    lastStrokePoint = { x, y };
+  }, { passive: false });
+
+  drawC.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!touchDrawActive) return;
+    const t = e.touches[0];
+    const rect = drawC.getBoundingClientRect();
+    const x = (t.clientX - rect.left) * (drawC.width / rect.width);
+    const y = (t.clientY - rect.top)  * (drawC.height / rect.height);
+    currentStroke.push({ x, y });
+    lastStrokePoint = { x, y };
+    const spawnN = 2 + Math.floor(Math.random() * 2);
+    spawnParticles(x, y, spawnN);
+    if (currentStroke.length >= 2) {
+      redrawAll();
+      drawBezierStroke(dCtx, currentStroke, brushColor, brushSize, false);
+    }
+  }, { passive: false });
+
+  drawC.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (!touchDrawActive) return;
+    touchDrawActive = false;
+    if (currentStroke.length > 1) {
+      strokes.push({ pts: [...currentStroke], color: brushColor, size: brushSize, eraser: false });
+      strokesVal.textContent = strokes.length;
+      redrawAll();
+    }
+    currentStroke = [];
+    lastStrokePoint = null;
+  }, { passive: false });
+}
+
+// ── Camera flip ──
+async function flipCamera() {
+  currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+  if (currentMediaStream) currentMediaStream.getTracks().forEach(t => t.stop());
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    currentMediaStream = stream;
+    video.srcObject = stream;
+    video.style.transform = currentFacingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+  } catch(e) { console.error('Flip error:', e); }
+}
+$('flipCamBtn').onclick = () => flipCamera();
+
+// ── Orientation handler ──
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    resizeCanvases();
+    currentStroke = [];
+    lastStrokePoint = null;
+    const om = $('orientMsg');
+    om.classList.add('visible');
+    setTimeout(() => om.classList.remove('visible'), 1500);
+  }, 300);
+});
+
+// ── MediaPipe setup ──
+async function init() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width: { ideal: 1280 }, height: { ideal: 720 }
+      },
+      audio: false
+    });
+    currentMediaStream = stream;
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    video.play();
+  } catch(e) {
+    loadingDiv.querySelector('h2').textContent = 'CAMERA ERROR';
+    console.error(e); return;
+  }
+
+  try {
+    const hands = new Hands({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    hands.setOptions({
+      maxNumHands: 1, modelComplexity: isMobile ? 0 : 1,
+      minDetectionConfidence: 0.6, minTrackingConfidence: 0.55
+    });
+    hands.onResults(processHand);
+
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        const w = video.videoWidth  || 640;
+        const h = video.videoHeight || 480;
+        preprocessC.width = w; preprocessC.height = h;
+        ppCtx.filter = 'none';
+        ppCtx.drawImage(video, 0, 0, w, h);
+        const imgData = ppCtx.getImageData(0, 0, w, h);
+        if (getAvgLuminance(imgData) < LUMA_THRESHOLD) {
+          ppCtx.filter = 'brightness(1.3) contrast(1.2)';
+          ppCtx.drawImage(video, 0, 0, w, h);
+        }
+        await hands.send({ image: preprocessC });
+      },
+      width: 1280, height: 720,
+      fps: isMobile ? 15 : 30
+    });
+
+    await camera.start();
+    loadingDiv.classList.add('hidden');
+    if (!calibDone) startCalib();
+    else calibOverlay.classList.add('hidden');
+
+  } catch(e) {
+    console.warn('MediaPipe failed:', e);
+    if (isMobile) {
+      loadingDiv.classList.add('hidden');
+      calibOverlay.classList.add('hidden');
+      enableTouchFallback();
+    } else {
+      loadingDiv.querySelector('h2').textContent = 'MEDIAPIPE ERROR';
+    }
+  }
+}
+
+init();
+</script>
+</body>
+</html>
